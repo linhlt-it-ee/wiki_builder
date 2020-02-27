@@ -1,0 +1,1 @@
+get_entities_SPARQ_by_property_reversesemiconductor device

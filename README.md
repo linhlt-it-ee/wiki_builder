@@ -14,7 +14,8 @@ Method 1:
 SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }}"""
      Disadvantage: Timeout request error or malfunction request when we have a few threads to crawl data.
    This method could not be implemented any more because or timeout request or too long to wait (at least 4 days) 
-   \
+ 
+ \
 Method 2:
 1.	Step 1: Find parent in upper 3 level and the link between all nodes in only 1 step instead of find direct parent for 3 times which leading to timeout request or malfunction request
 ""PREFIX gas: <http://www.bigdata.com/rdf/gas#>

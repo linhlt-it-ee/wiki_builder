@@ -3,6 +3,7 @@ A - Knowledge Graph Crawling from Wiki
 \
 Step 0: Find name mention in description or short name of an entity in the wikidata
 Ex: trifluoromethyl Q2302144
+
 \
 Method 1:
 1.	Step 1: Find direct parent of each entity for upper level 1

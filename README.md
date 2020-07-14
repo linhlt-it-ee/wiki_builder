@@ -1,7 +1,9 @@
 # wiki_builder
-A - Knowledge Graph Crawling from Wiki
+A - Knowledge Graph Crawling from Wiki 
+\
 Step 0: Find name mention in description or short name of an entity in the wikidata
 Ex: trifluoromethyl Q2302144
+\
 Method 1:
 1.	Step 1: Find direct parent of each entity for upper level 1
 2.	Step 2: Find parent intersection from all parents of each entity to find a root node
@@ -11,7 +13,8 @@ Method 1:
 """SELECT ?item ?itemLabel WHERE{wd:"""+ entity_id+""" wdt:"""+propertyID + """?item . 
 SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }}"""
      Disadvantage: Timeout request error or malfunction request when we have a few threads to crawl data.
-   This method could not be implemented any more because or timeout request or too long to wait (at least 4 days)
+   This method could not be implemented any more because or timeout request or too long to wait (at least 4 days) 
+   \
 Method 2:
 1.	Step 1: Find parent in upper 3 level and the link between all nodes in only 1 step instead of find direct parent for 3 times which leading to timeout request or malfunction request
 ""PREFIX gas: <http://www.bigdata.com/rdf/gas#>

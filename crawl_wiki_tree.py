@@ -14,11 +14,16 @@ import utils.excel_tree_level_export as excel_tree_level_export
 #text_util.search_wiki_with_thread_by_version(sys.argv[1:][0],int(sys.argv[1:][1]),int(sys.argv[1:][2]),int(sys.argv[1:][3]))
 def search_wiki_with_threads(folder_name,start, end, iteration):
     file_names = file_util.get_file_name_in_dir(folder_name, "txt")
+    threads = []
     for i, file_name in enumerate(file_names[start:end]):
         thread1 = threading.Thread(target=search_wiki_with_forward_iteration,
                                    args=(file_name, file_name + "_entity_dict_iteration.pck",file_name + "_entity_dict_not_found_iteration.pck", iteration))
         thread1.start()
+        threads.append(thread1)
         print("THREAD", i, " START")
+
+    for thread in threads:
+        thread.join()
 
 def update_entity_description_shortname(input_dict,all_entities_mention_dict):
     total = len(list(input_dict.keys()))

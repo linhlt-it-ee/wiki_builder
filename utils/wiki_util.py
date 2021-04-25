@@ -70,7 +70,7 @@ GROUP BY ?id?label?desc"""
         return '', '',[]
 
 def graph_query(entity_id,iteration=3):
-    print("iteration", iteration)
+    # print("iteration", iteration)
     try:
         query_str="""PREFIX gas: <http://www.bigdata.com/rdf/gas#>
 
@@ -103,18 +103,18 @@ WHERE
 
         linkto_df = list(results_df['linkTo.value'].values) if 'linkTo.value' in results_df else ['']*len(items)
         link_tos=['']*len(items) if len(items)>0 else []
-        print("ENTITY",entity_id)
+        # print("ENTITY",entity_id)
         link_tos=[linkto_df[i]  if '/' in  str(linkto_df[i]) else '' for i,x in enumerate(link_tos)]
         #if values[i] != x and type(values[i]) == str
         link_tos = [str(x).split('/')[-1] if '/' in str(x) else ''  for i, x in enumerate(link_tos) if values[i] != items[i]] #if values[i] != ids[i]]#if values[i] != ids[i] and type(values[i]) == str
         ids = [str(x).split('/')[-1] for i, x in enumerate(items) if values[i] != x and type(values[i]) == str]
         labels = [x.lower() for i, x in enumerate(values) ]#if x != items[i] and type(x) == str
-        print(entity_id,len(ids),len(link_tos))
+        # print(entity_id,len(ids),len(link_tos))
         # for i, id in enumerate(ids):
         #     print(i,id, values[i],link_tos[i])
         return ids, labels, link_tos
     except Exception:
-        return [],[]
+        return [],[], []
 
 def get_entities_SPARQ_by_property(entity_id, propertyID="P31",is_forward=True):
     forward_query="""SELECT ?item ?itemLabel 
@@ -151,14 +151,14 @@ def get_entities_SPARQ_by_property(entity_id, propertyID="P31",is_forward=True):
         # raise
         return [], []
 def remove_empty_linkto(parent_ids,parent_labels,parent_link_tos):
-
     removed_parent_link_to_idx=[i for i,x in enumerate(parent_link_tos) if x=='']
     parent_ids = [x for i,x in enumerate(parent_ids) if i not in removed_parent_link_to_idx]
     parent_labels = [x for i,x in enumerate(parent_labels) if i not in removed_parent_link_to_idx]
     parent_link_tos=[x for i,x in enumerate(parent_link_tos) if i not in removed_parent_link_to_idx]
     return parent_ids,parent_labels,parent_link_tos
+
 def get_wiki_id_from_text(noun,entity_dict={},iter_num=3):
-    print("iteration",iter_num)
+    # print("iteration",iter_num)
     match_ids, match_labels=text2id(noun)
     for idx, entity_id in enumerate(match_ids):
         if entity_id not in entity_dict:

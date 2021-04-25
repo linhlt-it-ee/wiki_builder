@@ -2,6 +2,8 @@ import json
 from typing import List, Dict, Set
 import copy
 import utils.file_util as file_util
+from tqdm import tqdm
+
 class Level:
     def __init__(self):
         self.paths: List[List[str]] = []
@@ -158,10 +160,10 @@ def merge_crawled_data(folder_name, file_type,output_path):
     # "id": parent_id, "label": parent_labels[ii], "link_to": parent_link_tos[ii]
     file_names = file_util.get_file_name_in_dir_regex(folder_name, file_type)
     data_dumped={}
-    for file_name in file_names:
+    for file_name in tqdm(file_names, desc="Merge crawled data", total=len(file_names)):
         # print("file_name", file_name)
         entity_dict = file_util.load(file_name)
-        print(entity_dict)
+        # print(entity_dict)
         for entity_id in entity_dict:
             linkto_infos=entity_dict[entity_id]["parents"]
             for linkto_info in linkto_infos:
@@ -182,17 +184,16 @@ def convert_to_tree(link_dict,entity_info_dict):
     for child, parent in link_dict.items():
         graph.add(child, parent)
     #info_dict=file_util.load("all_entities_info.pck")
-    graph.info_dict =entity_info_dict
+    graph.info_dict = entity_info_dict
     heads = graph.heads
     print(f'Number of top-level node: {len(heads)}/{len(graph.nodes)}')
     count=0
     graph_counted_heads={}
     for head in heads:
         if len(head.children)>0:
-            print("head",len(head.children),head.data,entity_info_dict.get(head.data,""),)
-            for child in head.children:
-
-                print(child.data,entity_info_dict[child.data]['label'])
+            # print("head",len(head.children),head.data,entity_info_dict.get(head.data,""),)
+            # for child in head.children:
+                # print(child.data,entity_info_dict[child.data]['label'])
             count+=1
             graph_counted_heads[head.data]={'label':entity_info_dict[head.data]['label'],'count':0,'children':[]}
 

@@ -102,7 +102,7 @@ def get_name_mention_from_claims_nltk(claims):
             targets = get_pattern_from_text_nltk(name_mention_pattern, short_text)
             # print(targets)
             name_mentions.extend(targets)
-        print("claim:", i)
+        # print("claim:", i)
     name_mentions = [x for x in name_mentions if
                      len(x.split()) >= 2 or (len(x.split()) == 1 and not_special_chars_inside(x) and len(x) > 1)]
     name_mentions = list(set(name_mentions))

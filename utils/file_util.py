@@ -77,4 +77,4 @@ def mkdir(directory):
 
 def dump_json(obj,save_path):
     with open(save_path, 'w') as outfile:
-        json.dump(obj, outfile)
+        json.dump(obj, outfile, ensure_ascii=False, indent=2)

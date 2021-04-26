@@ -1,23 +1,37 @@
-import sys
-sys.path.append("../")
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3"
-import networkx as nx
-from utils import file_util
-import pandas as pd
-from tqdm import tqdm
-import reuters_util
+import sys
+
+sys.path.append("../")
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 import dgl
-from transformers import AutoModel, AutoTokenizer
-import torch
 import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm, trange
+from transformers import AutoModel, AutoTokenizer
+from utils import file_util
+
+import reuters_util
+from heterorgcn import HeteroRGCN
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+writer = SummaryWriter()
 
-data_dir = "../sample_data"
+# Arguments
+lr = 0.01
+threshold = 0.5
+num_train_epochs = 100
+max_seq_len = 128
+data_dir = "../data"
 pretrained_model_name = "distilbert-base-uncased"
 doc_features_file = os.path.join(data_dir, "cached_doc_features.pck")
-concept_infor = file_util.load_json(os.path.join(data_dir, "reuters_all_entity_brief.json"))
+concept_infor = file_util.load_json(
+    os.path.join(data_dir, "reuters_all_entity_brief.json")
+)
 doc_vs_concepts = file_util.load_json(os.path.join(data_dir, "doc_vs_concepts.json"))
 
 # --------------------------------- Data Loading --------------------------------
@@ -36,14 +50,20 @@ if os.path.exists(doc_features_file):
     got_features = True
     doc_features = file_util.load(doc_features_file)
 
-for _, doc in tqdm(df.iterrows(), total=len(df), desc="Creating node:document metadata"):
+for _, doc in tqdm(
+    df.iterrows(), total=len(df), desc="Creating node:document metadata"
+):
     doc_id = str(doc["index"])
     doc_content = doc["content"]
     doc_label = reuters_util.get_onehot_label(doc)
     encoded_doc_ids[doc_id] = len(encoded_doc_ids)
     doc_labels.append(doc_label)
     if not got_features:
-        doc_features.append(reuters_util.get_text_embedding(doc_content, tokenizer, model))
+        doc_features.append(
+            reuters_util.get_text_embedding(
+                doc_content, tokenizer, model, max_length=max_seq_len
+            )
+        )
 
 if not got_features:
     file_util.dump(doc_features, doc_features_file)
@@ -52,21 +72,76 @@ doc_labels = torch.tensor(doc_labels, dtype=torch.long, device=device)
 
 # --------------------------------- Graph edges --------------------------------
 encoded_concept_ids = {}
-concept_desc = []
+# concept_labels = []
 edges = []
-for doc_id in tqdm(doc_vs_concepts, total=len(doc_vs_concepts), desc="Create edges & node:concept metadata"):
+for doc_id in tqdm(
+    doc_vs_concepts,
+    total=len(doc_vs_concepts),
+    desc="Create edges & node:concept metadata",
+):
     concepts = doc_vs_concepts[doc_id]
     for concept_id in concepts:
         if concept_id not in encoded_concept_ids:
             encoded_concept_ids[concept_id] = len(encoded_concept_ids)
-            concept_desc.append(concept_infor[concept_id]["label"])
+            # concept_labels.append(concept_infor[concept_id]["label"])
         dist = concepts[concept_id]
         encoded_doc_id = encoded_doc_ids[doc_id]
         encoded_concept_id = encoded_concept_ids[concept_id]
-        edges.append((encoded_doc_id, encoded_concept_id))
+        edges.append((encoded_doc_id, encoded_concept_id))  # TODO: Add weight
+
+# concept_features = reuters_util.get_onehot_embedding(encoded_concept_ids)
+concept_features = [
+    [i] for i in range(len(encoded_concept_ids))
+]  # TODO: Try with different embedding. Warning: one-hot encoding might be too large for memory
+# concept_features = reuters_util.get_text_embedding(concept_labels)
+concept_features = torch.tensor(concept_features, dtype=torch.float32, device=device)
 
 # --------------------------------- Graph --------------------------------
 num_nodes_dict = {"document": len(encoded_doc_ids), "concept": len(encoded_concept_ids)}
-graph = dgl.heterograph(data_dict={("document", "has", "concept"): edges}, num_nodes_dict=num_nodes_dict).to(device)
-graph.nodes["document"].data["features"] = doc_features
-graph.nodes["document"].data["labels"] = doc_labels
+graph = dgl.heterograph(
+    data_dict={
+        ("document", "have", "concept"): edges,
+        ("concept", "belong", "document"): [(v, u) for u, v in edges],
+    },
+    num_nodes_dict=num_nodes_dict,
+).to(device)
+print(graph)
+
+graph.nodes["document"].data["feat"] = doc_features
+graph.nodes["document"].data["label"] = doc_labels
+graph.nodes["concept"].data["feat"] = concept_features
+for etype_id, etype in enumerate(graph.etypes):
+    graph.edges[etype].data["id"] = (
+        torch.ones(graph.number_of_edges(etype), dtype=torch.long, device=device)
+        * etype_id
+    )
+
+# --------------------------- Training ----------------------------------
+model_dims = {"in_dims": {}, "hid_dims": {}, "out_dims": {}}
+hid_dim = 64
+out_dim = len(reuters_util.label_columns)
+for ntype in graph.ntypes:
+    model_dims["in_dims"][ntype] = graph.ndata["feat"][ntype].shape[1]
+    model_dims["hid_dims"][ntype] = hid_dim
+    model_dims["out_dims"][ntype] = out_dim
+
+model = HeteroRGCN(graph, **model_dims)
+optimizer = optim.Adam(model.parameters(), lr=lr)
+criterion = nn.BCEWithLogitsLoss()
+
+print("****** Training ******")
+pbar = trange(num_train_epochs, desc="Training")
+for epoch in pbar:
+    logits = model(graph, "document")
+    loss = criterion(logits, doc_labels.type_as(logits))
+    probs = torch.sigmoid(logits).cpu().detach().numpy()
+    preds = np.vectorize(lambda p: int(p >= threshold))(probs)
+    scores = reuters_util.compute_metrics(
+        doc_labels.cpu().detach().numpy(), preds, probs
+    )
+    writer.add_scalar("loss", loss.item(), epoch)
+    writer.add_scalars("metric", scores, epoch)
+    pbar.set_postfix(loss=loss.item())
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()

@@ -87,7 +87,7 @@ for doc_id in tqdm(
         dist = concepts[concept_id]
         encoded_doc_id = encoded_doc_ids[doc_id]
         encoded_concept_id = encoded_concept_ids[concept_id]
-        edges.append((encoded_doc_id, encoded_concept_id))  # TODO: Add weight
+        edges.append((encoded_doc_id, encoded_concept_id, dist))
 
 # concept_features = reuters_util.get_onehot_embedding(encoded_concept_ids)
 concept_features = [
@@ -100,8 +100,8 @@ concept_features = torch.tensor(concept_features, dtype=torch.float32, device=de
 num_nodes_dict = {"document": len(encoded_doc_ids), "concept": len(encoded_concept_ids)}
 graph = dgl.heterograph(
     data_dict={
-        ("document", "have", "concept"): edges,
-        ("concept", "belong", "document"): [(v, u) for u, v in edges],
+        ("document", "have", "concept"): [(u, v) for u, v, w in edges],
+        ("concept", "belong", "document"): [(v, u) for u, v, w in edges],
     },
     num_nodes_dict=num_nodes_dict,
 ).to(device)
@@ -114,6 +114,9 @@ for etype_id, etype in enumerate(graph.etypes):
     graph.edges[etype].data["id"] = (
         torch.ones(graph.number_of_edges(etype), dtype=torch.long, device=device)
         * etype_id
+    )
+    graph.edges[etype].data["weight"] = torch.tensor(
+        [w for u, v, w in edges], dtype=torch.float32, device=device
     )
 
 # --------------------------- Training ----------------------------------

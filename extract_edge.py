@@ -8,8 +8,8 @@ from utils import file_util
 from tqdm import tqdm
 from typing import Dict, Any
 
-max_dist = 2
-data_dir = "../sample_data"
+max_dist = 5
+data_dir = "./data"
 name_mention_dir = os.path.join(data_dir, "reuters_entities")
 name_mention_paths = file_util.get_file_name_in_dir_regex(
     name_mention_dir, "_entity_dict_iteration.pck"
@@ -17,15 +17,17 @@ name_mention_paths = file_util.get_file_name_in_dir_regex(
 links = file_util.load_json(os.path.join(data_dir, "reuters_all_entity.json"))
 
 
-def crawl_parent(
-    doc_id: int, curr_id: int, links: Dict[int, Any], level: int, max_level: int
-) -> None:
+def crawl_parent(doc_id: int, curr_id: int, links: Dict[int, Any], level: int, max_level: int) -> None:
     global doc_vs_concepts_edges
     if level > max_level:
         return
-    doc_vs_concepts_edges[doc_id][curr_id] = level
-    for parent in links[curr_id]:
-        crawl_parent(doc_id, parent, links, level + 1, max_level)
+    if level != 0:
+        doc_vs_concepts_edges[doc_id][curr_id] = level
+    try:
+        for parent in links[curr_id]:
+            crawl_parent(doc_id, parent, links, level + 1, max_level)
+    except:
+        pass
 
 
 doc_vs_concepts_edges = {}
@@ -44,4 +46,4 @@ for file_path in tqdm(
     for entity_id in doc_entities:
         crawl_parent(doc_id, entity_id, links, 0, max_dist)
 
-file_util.dump_json(doc_vs_concepts_edges, "../sample_data/doc_vs_concepts.json")
+file_util.dump_json(doc_vs_concepts_edges, os.path.join(data_dir, "doc_vs_concepts.json"))

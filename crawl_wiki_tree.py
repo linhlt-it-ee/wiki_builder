@@ -1,5 +1,6 @@
 import threading
 import sys
+import os
 import utils.text_util as text_util
 import utils.file_util as file_util
 import utils.wiki_util as wiki_util
@@ -12,12 +13,19 @@ import utils.excel_tree_level_export as excel_tree_level_export
 '''@iteration: iteration number for example if you want to find direct parent this number =1, for upper parent this number could be 2, 3'''
 '''@@@WARNING: max-iteration should be only 2'''
 #text_util.search_wiki_with_thread_by_version(sys.argv[1:][0],int(sys.argv[1:][1]),int(sys.argv[1:][2]),int(sys.argv[1:][3]))
-def search_wiki_with_threads(folder_name,start, end, iteration):
+def search_wiki_with_threads(folder_name,start, end, iteration=3):
     file_names = file_util.get_file_name_in_dir(folder_name, "txt")
     threads = []
     for i, file_name in enumerate(file_names[start:end]):
+        base_name = os.path.splitext(file_name)[0]
         thread1 = threading.Thread(target=search_wiki_with_forward_iteration,
-                                   args=(file_name, file_name + "_entity_dict_iteration.pck",file_name + "_entity_dict_not_found_iteration.pck", iteration))
+                                   args=(
+                                       file_name, 
+                                       base_name + "_entities.pck",
+                                       base_name + "_entities_not_found.pck", 
+                                       iteration
+                                       )
+                                   )
         thread1.start()
         threads.append(thread1)
         print("THREAD", i, " START")
@@ -118,7 +126,7 @@ def search_wiki_with_forward_iteration(txt_file, output_entity_file, not_wiki_ou
             not_found_entity.append(word)
         file_util.dump(entity_dict, output_entity_file)
         file_util.dump(not_found_entity, not_wiki_output)
-        print(i, '/', total, ')')#, word, '###', entities, '###'
+        print(i, '/', total)#, word, '###', entities, '###'
     # file_util.dump(entity_dict, "entities_dict_wth_lvl.pck")
     file_util.dump(entity_dict, output_entity_file)
     file_util.dump(not_found_entity,not_wiki_output)

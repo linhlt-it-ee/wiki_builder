@@ -21,12 +21,12 @@ class HeteroRGCNLayer(nn.Module):
         for stype, etype, dtype in graph.canonical_etypes:
             Wh = self.linears[stype](inputs[stype])
             graph.nodes[stype].data["Wh_%s" % etype] = Wh
-            # msg_fn = dfn.copy_u("Wh_%s" % etype, "m")
-            msg_fn = dfn.u_mul_e("Wh_%s" % etype, "weight", "m")
+            msg_fn = dfn.copy_u("Wh_%s" % etype, "m")
+            # msg_fn = dfn.u_mul_e("Wh_%s" % etype, "weight", "m")
             reduce_fn = dfn.mean("m", "h")
             msg_passing_fns[etype] = (msg_fn, reduce_fn)
 
-        graph.multi_update_all(msg_passing_fns, "sum")
+        graph.multi_update_all(msg_passing_fns, "mean")
         return graph.ndata["h"]
 
 

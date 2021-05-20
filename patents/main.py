@@ -1,6 +1,8 @@
 import sys
+
 sys.path.append("../")
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 import torch
 import json
@@ -15,20 +17,36 @@ from utils import file_util
 from heterorgcn import HeteroRGCN
 from transformers import AutoModel, AutoTokenizer
 from torch.utils.tensorboard import SummaryWriter
-from sklearn.metrics import classification_report, roc_auc_score, accuracy_score, roc_curve
+from sklearn.metrics import (
+    classification_report,
+    roc_auc_score,
+    accuracy_score,
+    roc_curve,
+)
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DATA_DIR = "../data/google_patents/us-25000"
 DOC_DIR = os.path.join(DATA_DIR, "doc")
 ENTITY_LABEL_PATH = os.path.join(DATA_DIR, "entity_labels.json")
 CONCEPT_GRAPH_DIR = os.path.join(DATA_DIR, "graphs")
+DOC_MASK_PATH = os.path.join(DATA_DIR, "mask.pck")
 
 pretrained_model_name = "distilbert-base-uncased"
 model = AutoModel.from_pretrained(pretrained_model_name).to(DEVICE)
 tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-def get_bert_embedding(text: str, max_length: int = 128, embedding_type: str = "pool_first"):
+
+
+def get_bert_embedding(
+    text: str, max_length: int = 128, embedding_type: str = "pool_first"
+):
     global model, tokenizer
-    encoded_input = tokenizer.encode_plus(text, padding="max_length", truncation=True, max_length=max_length, return_tensors="pt").to(DEVICE)
+    encoded_input = tokenizer.encode_plus(
+        text,
+        padding="max_length",
+        truncation=True,
+        max_length=max_length,
+        return_tensors="pt",
+    ).to(DEVICE)
     hidden_state = model(**encoded_input).last_hidden_state[0]
     if embedding_type == "pool_first":
         embedding = hidden_state[0]
@@ -39,6 +57,7 @@ def get_bert_embedding(text: str, max_length: int = 128, embedding_type: str = "
     else:
         raise NotImplementedError
     return embedding.detach().cpu().numpy()
+
 
 # Getting features and labels encoding
 # Creating features for node document (bert embedding from document content)
@@ -59,10 +78,10 @@ else:
                 doc_cnt += 1
                 doc = json.loads(line)
                 doc_types.update([x["code"] for x in doc["classifications"]])
-    
+
     print("Number of document types:", len(doc_types))
     doc_names, doc_features, doc_labels = [], [], []
-    doc_label_mapping = {x : i for i, x in enumerate(doc_types)}
+    doc_label_mapping = {x: i for i, x in enumerate(doc_types)}
     pbar = trange(doc_cnt, desc="Getting doc features & labels")
     for doc_file in doc_files:
         with open(doc_file, "r") as f:
@@ -82,7 +101,12 @@ else:
                 doc_labels.append(label)
                 pbar.update(1)
 
-    doc_info = {"doc_id": doc_names, "feat": doc_features, "labels": doc_labels, "label_mapping": doc_label_mapping}
+    doc_info = {
+        "doc_id": doc_names,
+        "feat": doc_features,
+        "labels": doc_labels,
+        "label_mapping": doc_label_mapping,
+    }
     file_util.dump(doc_info, doc_info_file)
 
 
@@ -90,6 +114,8 @@ else:
 # Note: only encoding nodes appearing on concept graph
 concept_graph_files = file_util.get_file_name_in_dir(CONCEPT_GRAPH_DIR, "gz")
 entity_labels = file_util.load_json(ENTITY_LABEL_PATH)
+doc_mask = file_util.load(DOC_MASK_PATH)
+train_mask, test_mask = doc_mask["train_mask"], doc_mask["test_mask"]
 entity_features_file = os.path.join(DATA_DIR, "cached_entity_features.pt")
 if os.path.exists(entity_features_file):
     entity_features = torch.load(entity_features_file)
@@ -108,8 +134,8 @@ else:
     torch.save(entity_features, entity_features_file)
 
 # Getting edges
-doc_encodes = {doc_name : i for i, doc_name in enumerate(doc_names)}
-entity_encodes = {ent_name : i for i, ent_name in enumerate(entity_features.keys())}
+doc_encodes = {doc_name: i for i, doc_name in enumerate(doc_names)}
+entity_encodes = {ent_name: i for i, ent_name in enumerate(entity_features.keys())}
 DvsC_edgelist = []
 CvsC_edgelist = []
 for file_name in tqdm(concept_graph_files, desc="Collecting edge lists"):
@@ -124,11 +150,13 @@ for file_name in tqdm(concept_graph_files, desc="Collecting edge lists"):
 
     concepts = graph.nodes
     for c in concepts:
-        assert doc_index in doc_encodes, f"Cannot found document {doc_index} information" 
+        assert (
+            doc_index in doc_encodes
+        ), f"Cannot found document {doc_index} information"
         assert u in entity_encodes, f"Cannot found entity {v} information"
         d_id, c_id = doc_encodes[doc_index], entity_encodes[c]
         DvsC_edgelist.append((d_id, c_id))
-        
+
 print("Number of DocVsConcept edges:", len(DvsC_edgelist))
 print("Number of ConceptVsConcept edges:", len(CvsC_edgelist))
 
@@ -140,12 +168,14 @@ graph = dgl.heterograph(
         ("concept", "belong", "document"): [(v, u) for u, v in DvsC_edgelist],
         ("concept", "is_child", "concept"): CvsC_edgelist,
         ("concept", "is_parent", "concept"): [(v, u) for u, v in CvsC_edgelist],
-    }, 
-    num_nodes_dict=num_nodes_dict
+    },
+    num_nodes_dict=num_nodes_dict,
 )
 graph.nodes["document"].data["feat"] = torch.tensor(doc_features, dtype=torch.float32)
 graph.nodes["document"].data["labels"] = torch.tensor(doc_labels, dtype=torch.long)
-graph.nodes["concept"].data["feat"] = torch.tensor(list(entity_features.values()), dtype=torch.float32)
+graph.nodes["concept"].data["feat"] = torch.tensor(
+    list(entity_features.values()), dtype=torch.float32
+)
 graph = graph.to(DEVICE)
 
 print("\n****** Graph Information ******")
@@ -169,24 +199,28 @@ model = HeteroRGCN(graph, **model_dims)
 optimizer = optim.Adam(model.parameters(), lr=lr)
 criterion = nn.BCEWithLogitsLoss()
 
+
 def compute_metrics(y_true, y_prob):
     global threshold
+
     def find_optimal_threshold(y_true, y_prob):
         fpr, tpr, thresholds = roc_curve(y_true, y_prob)
         return thresholds[np.argmax(tpr - fpr)]
 
     y_true = y_true.detach().cpu().numpy()
     y_prob = y_prob.detach().cpu().numpy()
-    num_labels = y_true.shape[1]
     """
+    num_labels = y_true.shape[1]
     thresholds = [find_optimal_threshold(y_true[:, i], y_prob[:, i]) for i in range(num_labels)]
     y_pred = np.zeros(y_prob.shape)
     for i in range(num_labels):
         y_pred[:, i] = (y_prob[:, i] >= thresholds[i]).astype(int)
     """
-    y_pred = np.vectorize(lambda p : int(p > threshold))(y_prob)
+    y_pred = np.vectorize(lambda p: int(p > threshold))(y_prob)
     metrics = {}
-    clf_report = classification_report(y_true, y_pred, output_dict=True, zero_division=0)
+    clf_report = classification_report(
+        y_true, y_pred, output_dict=True, zero_division=0
+    )
     for reduce_type in ("micro avg", "macro avg"):
         for metric, score in clf_report[reduce_type].items():
             metrics[f"{reduce_type}_{metric}"] = score
@@ -195,31 +229,47 @@ def compute_metrics(y_true, y_prob):
     metrics["micro avg_auc"] = roc_auc_score(y_true, y_prob, average="micro")
     return metrics
 
+
 print("\n****** Training *******")
 pbar = trange(num_train_epochs, desc="Training")
-experiment_name = f"threshold={threshold}_dim={hid_dim}_lr={lr}_epochs={num_train_epochs}"
+experiment_name = (
+    f"threshold={threshold}_dim={hid_dim}_lr={lr}_epochs={num_train_epochs}"
+)
 logger = SummaryWriter(log_dir=f"runs/{experiment_name}")
 
 for epoch in pbar:
     logits = model(graph, "document")
-    probs = torch.sigmoid(logits)
+    train_logits = logits[train_mask]
+    test_logits = logits[test_mask]
     optimizer.zero_grad()
-    loss = criterion(logits, graph.nodes["document"].data["labels"].type_as(logits)), 
+    loss = (
+        criterion(
+            train_logits,
+            graph.nodes["document"].data["labels"][train_mask].type_as(train_logits),
+        ),
+    )
     loss = loss[0]
-    # logging progress
+
     pbar.set_postfix(loss=loss.item())
     logger.add_scalar("loss", loss.item(), epoch)
     if (epoch + 1) % 100 == 0:
-        metric_scores = compute_metrics(graph.nodes["document"].data["labels"], probs)
+        probs = torch.sigmoid(test_logits)
+        metric_scores = compute_metrics(
+            graph.nodes["document"].data["labels"][test_mask], probs
+        )
         for metric, score in metric_scores.items():
             logger.add_scalar(metric, score, epoch)
     loss.backward()
     optimizer.step()
 
 print("Last epoch results:")
-metric_scores = compute_metrics(graph.nodes["document"].data["labels"], probs)
+probs = torch.sigmoid(test_logits)
+metric_scores = compute_metrics(
+    graph.nodes["document"].data["labels"][test_mask], probs
+)
 for metric, score in metric_scores.items():
     print("- {}: {}".format(metric, score))
+pd.DataFrame(metric_scores).to_csv("report.csv")
 
 print("Last prediction maximum probabilities:")
 res, _ = torch.max(probs, axis=0)

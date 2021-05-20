@@ -19,6 +19,7 @@ from sklearn.metrics import classification_report, roc_auc_score, accuracy_score
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 DATA_DIR = "../data"
 DOC_PATH = os.path.join(DATA_DIR, "reuters.csv")
+DOC_MASK_PATH = os.path.join(DATA_DIR, "mask.pck")
 ENTITY_LABEL_PATH = os.path.join(DATA_DIR, "entity_labels.json")
 CONCEPT_GRAPH_DIR = os.path.join(DATA_DIR, "graphs")
 
@@ -43,6 +44,7 @@ def get_bert_embedding(text: str, max_length: int = 128, embedding_type: str = "
 doc_df = pd.read_csv(DOC_PATH, index_col="index")
 label_columns = [x for x in doc_df.columns if x not in ("path", "topic", "subset", "content")]
 doc_labels = doc_df[label_columns].values
+doc_masks = file_util.load(DOC_MASK_PATH)
 
 # Creating features for node document (bert embedding from document content)
 doc_features_file = os.path.join(DATA_DIR, "cached_doc_features.pt")
@@ -52,8 +54,8 @@ else:
     doc_features = {}       # All key must be string
     for doc_index, doc_info in tqdm(doc_df.iterrows(), total=len(doc_df), desc="Creating doc features"):
         doc_index = str(doc_index)
-        content = doc_info["content"]
-        doc_features[doc_index] = get_bert_embedding(content, max_length=128)
+        content = doc_info["content"].split("\n")[0]
+        doc_features[doc_index] = get_bert_embedding(content, max_length=64)
     torch.save(doc_features, doc_features_file)
 
 # Creating features for node concept (bert embeeding from concept label)
@@ -124,10 +126,10 @@ print("****** Label Information ******")
 print(torch.sum(graph.nodes["document"].data["labels"], axis=0).detach().cpu())
 
 # Creating model for node classification
-num_train_epochs = 20000
-threshold = 0.55
+num_train_epochs = 50000
+threshold = 0.5
 lr = 0.005
-hid_dim = 512
+hid_dim = 768
 model_dims = {"in_dims": {}, "hid_dims": {}, "out_dims": {}}
 out_dim = graph.nodes["document"].data["labels"].shape[1]
 for ntype in graph.ntypes:
@@ -161,33 +163,39 @@ def compute_metrics(y_true, y_prob):
         for metric, score in clf_report[reduce_type].items():
             metrics[f"{reduce_type}_{metric}"] = score
     metrics["accuracy"] = accuracy_score(y_true, y_pred)
-    metrics["macro avg_auc"] = roc_auc_score(y_true, y_prob, average="macro")
-    metrics["micro avg_auc"] = roc_auc_score(y_true, y_prob, average="micro")
+    # metrics["macro avg_auc"] = roc_auc_score(y_true, y_prob, average="macro")
+    # metrics["micro avg_auc"] = roc_auc_score(y_true, y_prob, average="micro")
     return metrics
 
 print("\n****** Training *******")
 pbar = trange(num_train_epochs, desc="Training")
-experiment_name = f"threshold={threshold}_dim={hid_dim}_lr={lr}_epochs={num_train_epochs}"
+experiment_name = f"0.7_threshold={threshold}_dim={hid_dim}_lr={lr}_epochs={num_train_epochs}"
 logger = SummaryWriter(log_dir=f"runs/{experiment_name}")
+train_mask = doc_masks["train_mask"]
+test_mask = doc_masks["test_mask"]
 
 for epoch in pbar:
     logits = model(graph, "document")
-    probs = torch.sigmoid(logits)
+    train_logits = logits[train_mask]
+    test_logits = logits[test_mask]
     optimizer.zero_grad()
-    loss = criterion(logits, graph.nodes["document"].data["labels"].type_as(logits)), 
+    loss = criterion(train_logits, graph.nodes["document"].data["labels"][train_mask].type_as(train_logits)), 
     loss = loss[0]
-    # logging progress
+
     pbar.set_postfix(loss=loss.item())
     logger.add_scalar("loss", loss.item(), epoch)
     if (epoch + 1) % 100 == 0:
-        metric_scores = compute_metrics(graph.nodes["document"].data["labels"], probs)
+        probs = torch.sigmoid(test_logits)
+        metric_scores = compute_metrics(graph.nodes["document"].data["labels"][test_mask], probs)
         for metric, score in metric_scores.items():
             logger.add_scalar(metric, score, epoch)
+
     loss.backward()
     optimizer.step()
 
 print("Last epoch results:")
-metric_scores = compute_metrics(graph.nodes["document"].data["labels"], probs)
+probs = torch.sigmoid(test_logits)
+metric_scores = compute_metrics(graph.nodes["document"].data["labels"][test_mask], probs)
 for metric, score in metric_scores.items():
     print("- {}: {}".format(metric, score))
 

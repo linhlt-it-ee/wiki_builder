@@ -3,7 +3,7 @@ import sys
 sys.path.append("../")
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 import torch
 import json
 import torch.optim as optim
@@ -61,6 +61,8 @@ def get_bert_embedding(
 
 # Getting features and labels encoding
 # Creating features for node document (bert embedding from document content)
+doc_mask = file_util.load(DOC_MASK_PATH)
+train_mask, test_mask = doc_mask["train_mask"], doc_mask["test_mask"]
 doc_files = file_util.get_file_name_in_dir(DOC_DIR, "json")
 doc_info_file = os.path.join(DATA_DIR, "cached_doc_info.pck")
 if os.path.exists(doc_info_file):
@@ -114,8 +116,6 @@ else:
 # Note: only encoding nodes appearing on concept graph
 concept_graph_files = file_util.get_file_name_in_dir(CONCEPT_GRAPH_DIR, "gz")
 entity_labels = file_util.load_json(ENTITY_LABEL_PATH)
-doc_mask = file_util.load(DOC_MASK_PATH)
-train_mask, test_mask = doc_mask["train_mask"], doc_mask["test_mask"]
 entity_features_file = os.path.join(DATA_DIR, "cached_entity_features.pt")
 if os.path.exists(entity_features_file):
     entity_features = torch.load(entity_features_file)

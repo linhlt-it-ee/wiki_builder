@@ -1,17 +1,18 @@
 import pickle
 import os
 import pandas as pd
+import logging
 import glob
 import json
 
 def dump(obj, save_path):
     # dir_path = os.path.dirname(os.path.realpath(__file__))
     # path = dir_path + "/" + path
-    print("PATH", save_path)
+    logging.debug(f"PATH {save_path}")
     if os.path.exists(save_path):
         os.remove(path=save_path)
     output = open(save_path, 'wb')
-    pickle.dump(obj, output)#, protocol=pickle.HIGHEST_PROTOCOL
+    pickle.dump(obj, output)    #, protocol=pickle.HIGHEST_PROTOCOL
     output.close()
     # print("type", type(data))
     # datai = pickle.dumps(obj)
@@ -22,6 +23,7 @@ def dump(obj, save_path):
     #     output = open(save_path + str(i), 'wb')
     #     pickle.dump(ai, output)
     #     output.close()
+
 def load(save_path):
     # dir_path = os.path.dirname(os.path.realpath(__file__))
     # path = dir_path + "/" + path

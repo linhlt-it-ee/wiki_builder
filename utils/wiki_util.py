@@ -9,7 +9,7 @@ def text2id(name_mention):
         sparql.setQuery(query_string)
         sparql.setReturnFormat(JSON)
         results = sparql.query().convert()
-        results_df = pd.io.json.json_normalize(results['results']['bindings'])
+        results_df = pd.json_normalize(results['results']['bindings'])
         items = list(results_df['item.value'].values) if 'item.value' in results_df else []
         items = [x.split('/')[-1] for x in items]
         values = list(results_df['label.value'].values) if 'item.value' in results_df else []
@@ -42,7 +42,7 @@ GROUP BY ?id?label?desc"""
         sparql.setReturnFormat(JSON)
         results = sparql.query().convert()
         # print(results)
-        results_df = pd.io.json.json_normalize(results['results']['bindings'])
+        results_df = pd.json_normalize(results['results']['bindings'])
         # for item in results_df:
         #     print(item)
         # print(results_df[['item.value']['itemLabel.value']].heading())
@@ -95,7 +95,7 @@ WHERE
         # print(sparql.query())
         results = sparql.query().convert()
         # print(results)
-        results_df = pd.io.json.json_normalize(results['results']['bindings'])
+        results_df = pd.json_normalize(results['results']['bindings'])
         # print(results_df[['item.value','linkTo.value']])
         items = list(results_df['item.value'].values) if 'item.value' in results_df else []
 
@@ -133,7 +133,7 @@ def get_entities_SPARQ_by_property(entity_id, propertyID="P31",is_forward=True):
         sparql.setReturnFormat(JSON)
         results = sparql.query().convert()
         # print(results)
-        results_df = pd.io.json.json_normalize(results['results']['bindings'])
+        results_df = pd.json_normalize(results['results']['bindings'])
         # print(results_df[['item.value']['itemLabel.value']].heading())
         items =list(results_df['item.value'].values) if 'item.value' in results_df else []
         items = [x.split('/')[-1] for x in items]
@@ -150,6 +150,7 @@ def get_entities_SPARQ_by_property(entity_id, propertyID="P31",is_forward=True):
         log_file.close()
         # raise
         return [], []
+    
 def remove_empty_linkto(parent_ids,parent_labels,parent_link_tos):
     removed_parent_link_to_idx=[i for i,x in enumerate(parent_link_tos) if x=='']
     parent_ids = [x for i,x in enumerate(parent_ids) if i not in removed_parent_link_to_idx]
@@ -160,6 +161,7 @@ def remove_empty_linkto(parent_ids,parent_labels,parent_link_tos):
 def get_wiki_id_from_text(noun,entity_dict={},iter_num=3):
     # print("iteration",iter_num)
     match_ids, match_labels=text2id(noun)
+    
     for idx, entity_id in enumerate(match_ids):
         if entity_id not in entity_dict:
             entity_label=match_labels[idx]

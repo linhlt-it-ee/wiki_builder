@@ -1,4 +1,5 @@
 import threading
+import logging
 import sys
 import os
 import utils.text_util as text_util
@@ -18,17 +19,21 @@ def search_wiki_with_threads(folder_name,start, end, iteration=3):
     threads = []
     for i, file_name in enumerate(file_names[start:end]):
         base_name = os.path.splitext(file_name)[0]
+        entities_file = base_name + "_entities.pck"
+        not_found_entities_file = base_name + "_entities_not_found.pck"
+        # if os.path.exists(entities_file):
+            # continue
         thread1 = threading.Thread(target=search_wiki_with_forward_iteration,
                                    args=(
                                        file_name, 
-                                       base_name + "_entities.pck",
-                                       base_name + "_entities_not_found.pck", 
+                                       entities_file,
+                                       not_found_entities_file, 
                                        iteration
                                        )
                                    )
         thread1.start()
         threads.append(thread1)
-        print("THREAD", i, " START")
+        logging.info(f"THREAD {i} START")
 
     for thread in threads:
         thread.join()
@@ -126,7 +131,7 @@ def search_wiki_with_forward_iteration(txt_file, output_entity_file, not_wiki_ou
             not_found_entity.append(word)
         file_util.dump(entity_dict, output_entity_file)
         file_util.dump(not_found_entity, not_wiki_output)
-        print(i, '/', total)#, word, '###', entities, '###'
+        logging.debug(f"Finished {i}/{total}")
     # file_util.dump(entity_dict, "entities_dict_wth_lvl.pck")
     file_util.dump(entity_dict, output_entity_file)
     file_util.dump(not_found_entity,not_wiki_output)

@@ -37,7 +37,7 @@ class HeteroRGCN(nn.Module):
         self.layer2 = HeteroRGCNLayer(graph, hid_dims, out_dims)
 
     def forward(self, graph, out_type):
-        inputs = {ntype: graph.ndata["feat"][ntype] for ntype in graph.ntypes}
+        inputs = {ntype: graph.ndata["feature"][ntype] for ntype in graph.ntypes}
         x = self.layer1(graph, inputs)
         x = {ntype: F.relu(x[ntype]) for ntype in graph.ntypes}
         x = self.layer2(graph, x)

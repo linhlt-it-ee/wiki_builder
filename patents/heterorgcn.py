@@ -1,28 +1,33 @@
 import dgl.function as dfn
+import dgl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+from typing import Dict, Union, List
 
 
 class HeteroRGCNLayer(nn.Module):
-    def __init__(self, graph, in_dims, out_dims):
-        super(HeteroRGCNLayer, self).__init__()
-        self.linears = nn.ModuleDict(
-            {
-                ntype: nn.Linear(in_dims[ntype], out_dims[ntype])
-                for ntype in graph.ntypes
-            }
-        ).to(device)
+    def __init__(
+        self, in_dims: Union[Dict[str, int], int], out_dim: int, etypes: List[str]
+    ) -> None:
+        super().__init__()
+        if isinstance(in_dims, dict):
+            self.linears = nn.ModuleDict(
+                {x: nn.Linear(in_dims[x], out_dim) for x in etypes}
+            )
+        else:
+            self.linears = nn.ModuleDict(
+                {x: nn.Linear(in_dims, out_dim) for x in etypes}
+            )
 
-    def forward(self, graph, inputs):
+    def forward(
+        self, graph: dgl.DGLHeteroGraph, inputs: Dict[str, torch.Tensor]
+    ) -> Dict[str, torch.Tensor]:
         msg_passing_fns = {}
         for stype, etype, dtype in graph.canonical_etypes:
-            Wh = self.linears[stype](inputs[stype])
+            Wh = self.linears[etype](inputs[stype])
             graph.nodes[stype].data["Wh_%s" % etype] = Wh
             msg_fn = dfn.copy_u("Wh_%s" % etype, "m")
-            # msg_fn = dfn.u_mul_e("Wh_%s" % etype, "weight", "m")
             reduce_fn = dfn.mean("m", "h")
             msg_passing_fns[etype] = (msg_fn, reduce_fn)
 
@@ -31,13 +36,19 @@ class HeteroRGCNLayer(nn.Module):
 
 
 class HeteroRGCN(nn.Module):
-    def __init__(self, graph, in_dims, hid_dims, out_dims):
-        super(HeteroRGCN, self).__init__()
-        self.layer1 = HeteroRGCNLayer(graph, in_dims, hid_dims)
-        self.layer2 = HeteroRGCNLayer(graph, hid_dims, out_dims)
+    def __init__(
+        self,
+        graph: dgl.DGLHeteroGraph,
+        in_dims: Dict[str, int],
+        hidden_dim: int,
+        out_dim: int,
+    ) -> None:
+        super().__init__()
+        self.layer1 = HeteroRGCNLayer(in_dims, hidden_dim, graph.etypes)
+        self.layer2 = HeteroRGCNLayer(hidden_dim, out_dim, graph.etypes)
 
-    def forward(self, graph, out_type):
-        inputs = {ntype: graph.ndata["feat"][ntype] for ntype in graph.ntypes}
+    def forward(self, graph: dgl.DGLHeteroGraph, out_type: str) -> torch.Tensor:
+        inputs = {ntype: graph.ndata["feature"][ntype] for ntype in graph.ntypes}
         x = self.layer1(graph, inputs)
         x = {ntype: F.relu(x[ntype]) for ntype in graph.ntypes}
         x = self.layer2(graph, x)

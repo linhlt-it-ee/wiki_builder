@@ -4,6 +4,7 @@ import pandas as pd
 import logging
 import glob
 import json
+from tqdm import tqdm
 
 def dump(obj, save_path):
     # dir_path = os.path.dirname(os.path.realpath(__file__))
@@ -33,8 +34,13 @@ def load(save_path):
         return pickle.load(file)
 
 def load_json(file_path):
-    file=open(file_path,"r")
+    file = open(file_path,"r")
     return json.load(file)
+
+def load_ndjson(file_path, pname: str = None):
+    with open(file_path, "r") as f:
+        for line in tqdm(f, desc=pname):
+            yield json.loads(line)
 
 def get_claims(excel_file, sheet_name):  # get values by tag column
     xl = pd.ExcelFile(excel_file)

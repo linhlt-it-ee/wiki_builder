@@ -3,6 +3,7 @@ from argparse import ArgumentParser
 
 def make_args():
     parser = ArgumentParser()
+    parser.add_argument("--exp_name", type=str, help="Experiment name for logging")
     # graph args
     parser.add_argument("--data_dir", type=str, help="Data directory")
     parser.add_argument("--par1_num", type=int, default=-1, help="Number of 1-hop parents for each node")

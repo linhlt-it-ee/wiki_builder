@@ -3,14 +3,16 @@ from tqdm import trange
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 from dgl import DGLGraph
 from .metrics import compute_metrics
 
 
-def train(model: nn.Module, graph: DGLGraph, target_node: str, lr: float, epochs: int, threshold: float = 0.5):
+def train(model: nn.Module, graph: DGLGraph, target_node: str, lr: float, epochs: int, threshold: float = 0.5, writer: SummaryWriter = None):
     optimizer = optim.AdamW(model.parameters(), lr=lr)
-    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch : lr * 0.9 ** epoch)
+    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch : lr * 0.9 ** (epoch - 1))
     criterion = nn.BCEWithLogitsLoss()
+    # criterion = nn.CrossEntropyLoss()
     train_mask = graph.nodes[target_node].data["train_mask"]
     val_mask = graph.nodes[target_node].data["val_mask"]
     test_mask = graph.nodes[target_node].data["test_mask"]
@@ -21,15 +23,24 @@ def train(model: nn.Module, graph: DGLGraph, target_node: str, lr: float, epochs
         optimizer.zero_grad()
         logits = model(graph, target_node)
         loss = criterion(logits[train_mask], labels[train_mask].type_as(logits))
+        # loss = criterion(logits[train_mask], labels[train_mask])
         loss.backward()
         optimizer.step()
         pbar.set_postfix(loss=loss.item(), lr="{:.1e}".format(lr_scheduler.get_last_lr()[0]))
+        writer.add_scalar("loss/train", loss.item(), epoch)
+
         if (epoch + 1) % 100 == 0:
-            print(eval(labels, logits, val_mask, threshold=threshold))
+            val_scores = eval(labels, logits, val_mask, threshold=threshold)
+            print(val_scores)
+            for k, v in val_scores.items():
+                writer.add_scalar(f"{k}/val", v, epoch)
             lr_scheduler.step()
 
     print("**** TEST ****")
-    print(eval(labels, logits, test_mask, threshold=threshold))
+    test_scores = eval(labels, logits, test_mask, threshold=threshold)
+    print(test_scores)
+    for k, v in test_scores.items():
+        writer.add_scalar(f"{k}/test", v, epoch)
 
 def eval(labels, logits, mask, threshold: float = 0.5):
     y_true = labels[mask].detach().cpu().numpy()

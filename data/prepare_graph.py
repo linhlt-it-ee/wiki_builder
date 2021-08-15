@@ -38,19 +38,23 @@ def prepare_graph(data_dir: str, par_num: List[int]) -> Tuple[DGLGraph, Dict, Di
     num_nodes_dict = {"doc": len(D), "concept": len(C)}
     graph = dgl.heterograph(
         data_dict={
+            ("doc", "contain", "concept"): DvsC,
             ("concept", "in", "doc"): (DvsC[1], DvsC[0]),
             ("concept", "belong", "concept"): CvsC,
+            # ("concept", "elaborate", "concept"): (CvsC[1], CvsC[0]),
         },
         num_nodes_dict=num_nodes_dict
     )
     graph.nodes["concept"].data["feat"] = torch.tensor(C_info[0], dtype=torch.float32)
     graph.nodes["doc"].data["feat"] = torch.tensor(D_info[0], dtype=torch.float32)
-    graph.nodes["doc"].data["label"] = torch.tensor(D_info[1], dtype=torch.int16)
+    graph.nodes["doc"].data["label"] = torch.tensor(D_info[1], dtype=torch.long)
     graph.nodes["doc"].data["train_mask"] = torch.tensor(D_info[2]["train_mask"], dtype=torch.bool)
     graph.nodes["doc"].data["val_mask"] = torch.tensor(D_info[2]["val_mask"], dtype=torch.bool)
     graph.nodes["doc"].data["test_mask"] = torch.tensor(D_info[2]["test_mask"], dtype=torch.bool)
     logging.info(graph)
-    return graph.to(device), D, C
+    num_classes = len(utils.load_json(doc_label_path))
+
+    return graph.to(device), D, C, num_classes
 
 def _broadcast(doc_mention_path: str, mention_concept_path: str, par_num: List[int]):
     doc_mention = utils.load_json(doc_mention_path)
@@ -126,9 +130,9 @@ def _embed_node(doc_path: str, doc_label_path: str, concept_path: str, D: Dict[s
     for doc in utils.load_ndjson(doc_path, pname="Encode documents"):
         id = D.get(doc["id"], None)
         if id is not None:
-            embedding = utils.get_text_embedding(encoder, doc["title"])
-            D_feat[id] = embedding.detach().cpu().numpy()
+            D_feat[id] = utils.get_text_embedding(encoder, doc["title"]).detach().cpu().numpy()
             D_label[id] = utils.get_onehot(doc["labels"], doc_labels)
+            # D_label[id] = doc_labels[doc["labels"]]
             D_mask["train_mask"][id] = doc["is_train"]
             D_mask["val_mask"][id] = doc["is_dev"]
             D_mask["test_mask"][id] = doc["is_test"]
@@ -137,7 +141,6 @@ def _embed_node(doc_path: str, doc_label_path: str, concept_path: str, D: Dict[s
     for cid, label in tqdm(concepts.items(), "Encode concepts"):
         id = C.get(cid, None)
         if id is not None:
-            embedding = utils.get_text_embedding(encoder, label)
-            C_feat[id] = embedding.detach().cpu().numpy()
+            C_feat[id] = utils.get_text_embedding(encoder, label).detach().cpu().numpy()
 
     return (D_feat, D_label, D_mask), (C_feat,)

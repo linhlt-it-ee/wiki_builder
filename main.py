@@ -22,7 +22,7 @@ if __name__ == "__main__":
 
     target_node = "doc"
     graph, doc_ids, concept_ids, n_classes = prepare_graph(args.data_dir, [args.par1_num, args.par2_num, args.par3_num])
-    model = prepare_model(args.model_name, graph, n_classes, args.hidden_feat, args.n_layers)
+    model = prepare_model(args.model_name, graph, n_classes, args.hidden_feat, args.n_layers, args.aggregate, args.num_heads, args.multihead_aggregate)
     writer = SummaryWriter()
     train(model, graph, target_node, args.lr, args.epochs, args.threshold, writer)
     run.finish()

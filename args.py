@@ -10,6 +10,9 @@ def make_args():
     parser.add_argument("--par2_num", type=int, default=-1, help="Number of 2-hop parents for each node")
     parser.add_argument("--par3_num", type=int, default=-1, help="Number of 3-hop parents for each node")
     parser.add_argument("--pretrained_node_encoder", type=str, default="distilbert-base-uncased", help="Name of pretrained model for node embedding")
+    parser.add_argument("--aggregate", type=str, default="sum", help="Aggregation function on neighboring nodes")
+    parser.add_argument("--multihead_aggregate", type=str, default="concat", help="Aggregate function on attention heads")
+    parser.add_argument("--num_heads", type=int, default=2, help="Number of attention heads")
     # model args
     parser.add_argument("--model_name", type=str, help="GNN architecture")
     parser.add_argument("--hidden_feat", type=int, default=128, help="Number of hidden units")

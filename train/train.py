@@ -12,7 +12,6 @@ def train(model: nn.Module, graph: DGLGraph, target_node: str, lr: float, epochs
     optimizer = optim.AdamW(model.parameters(), lr=lr)
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch : lr * 0.9 ** (epoch - 1))
     criterion = nn.BCEWithLogitsLoss()
-    # criterion = nn.CrossEntropyLoss()
     train_mask = graph.nodes[target_node].data["train_mask"]
     val_mask = graph.nodes[target_node].data["val_mask"]
     test_mask = graph.nodes[target_node].data["test_mask"]
@@ -23,7 +22,6 @@ def train(model: nn.Module, graph: DGLGraph, target_node: str, lr: float, epochs
         optimizer.zero_grad()
         logits = model(graph, target_node)
         loss = criterion(logits[train_mask], labels[train_mask].type_as(logits))
-        # loss = criterion(logits[train_mask], labels[train_mask])
         loss.backward()
         optimizer.step()
         pbar.set_postfix(loss=loss.item(), lr="{:.1e}".format(lr_scheduler.get_last_lr()[0]))

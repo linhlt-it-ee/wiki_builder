@@ -6,9 +6,10 @@ from dgl import DGLGraph
 
 
 class HeteroRGCNLayer(nn.Module):
-    def __init__(self, in_feat: int, out_feat: int, rel_names: List[str]):
+    def __init__(self, in_feat: int, out_feat: int, rel_names: List[str] = None, aggregate: str = "sum"):
         super().__init__()
         self.linears = nn.ModuleDict({rel: nn.Linear(in_feat, out_feat) for rel in rel_names})
+        self.agg_fn = aggregate
 
     def forward(self, graph: DGLGraph, feat):
         msg_passing_fn = {}
@@ -18,17 +19,18 @@ class HeteroRGCNLayer(nn.Module):
             msg_fn = dfn.copy_u("Wh_%s" % rel, "m")
             reduce_fn = dfn.mean("m", "h")
             msg_passing_fn[rel] = (msg_fn, reduce_fn)
-        graph.multi_update_all(msg_passing_fn, "sum")
+        graph.multi_update_all(msg_passing_fn, self.agg_fn)
         return graph.ndata["h"]
 
 class HeteroRGCN(nn.Module):
-    def __init__(self, in_feat: int, hidden_feat: int, n_classes: int, n_layers: int, rel_names: List[str]):
+    def __init__(self, in_feat: int, hidden_feat: int, n_classes: int, n_layers: int, aggregate: str = "sum", rel_names: List[str] = None):
         super().__init__()
         self.layers = nn.ModuleList()
-        self.layers.append(HeteroRGCNLayer(in_feat, hidden_feat, rel_names))
+        last_feat = in_feat
         for _ in range(n_layers - 1):
-            self.layers.append(HeteroRGCNLayer(hidden_feat, hidden_feat, rel_names))
-        self.layers.append(HeteroRGCNLayer(hidden_feat, n_classes, rel_names))
+            self.layers.append(HeteroRGCNLayer(last_feat, hidden_feat, rel_names, aggregate=aggregate))
+            last_feat = hidden_feat
+        self.layers.append(HeteroRGCNLayer(last_feat, n_classes, rel_names, aggregate=aggregate))
 
     def forward(self, graph: DGLGraph, target_node: str):
         h = graph.ndata["feat"]

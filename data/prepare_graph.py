@@ -53,6 +53,7 @@ def prepare_graph(data_dir: str, par_num: List[int]) -> Tuple[DGLGraph, Dict, Di
     graph.nodes["doc"].data["test_mask"] = torch.tensor(D_info[2]["test_mask"], dtype=torch.bool)
     logging.info(graph)
     num_classes = len(utils.load_json(doc_label_path))
+    graph = dgl.add_self_loop(graph, etype="belong")
 
     return graph.to(device), D, C, num_classes
 
@@ -132,7 +133,6 @@ def _embed_node(doc_path: str, doc_label_path: str, concept_path: str, D: Dict[s
         if id is not None:
             D_feat[id] = utils.get_text_embedding(encoder, doc["title"]).detach().cpu().numpy()
             D_label[id] = utils.get_onehot(doc["labels"], doc_labels)
-            # D_label[id] = doc_labels[doc["labels"]]
             D_mask["train_mask"][id] = doc["is_train"]
             D_mask["val_mask"][id] = doc["is_dev"]
             D_mask["test_mask"][id] = doc["is_test"]

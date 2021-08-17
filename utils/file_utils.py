@@ -79,10 +79,6 @@ def get_file_name_in_dir_regex(folder_name,ending_txt):
     file_names.sort(reverse=True)
     return file_names
 
-def mkdir(directory):
-    if not os.path.exists(directory):
-        os.makedirs(directory)
-
 def dump_json(obj,save_path):
     with open(save_path, 'w') as outfile:
         json.dump(obj, outfile, ensure_ascii=False, indent=2)

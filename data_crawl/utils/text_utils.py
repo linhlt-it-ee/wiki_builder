@@ -3,7 +3,7 @@ import operator
 import re
 import nltk
 import copy
-import utils.sony_common as sony_const
+from . import sony_common as sony_const
 from nltk.corpus import words as nltk_words
 from pattern.text.en import singularize
 from janome.tokenfilter import CompoundNounFilter, POSKeepFilter, POSStopFilter
@@ -79,12 +79,9 @@ def get_pattern_from_text_nltk(pattern, text):
     words, tags = nltk_tokenize(str(text))
     words = [re.sub('<.*>|”|“', '', x) for x in words]
     pos_punct = ["VBD" if x in sony_const.noun_tag_list and words[i] in sony_const.include_verbs else x for i, x in enumerate(tags)]
-    pos_punct = ["CC" if (x in sony_const.noun_tag_list or x in sony_const.other_tag_list) and words[i] in sony_const.conjunctions else x for i, x in
-                 enumerate(pos_punct)]
-    pos_punct = ["UNK" if (x in sony_const.other_tag_list or x in sony_const.noun_tag_list) and words[i] in sony_const.no_meaning_words else x for i, x
-                 in enumerate(pos_punct)]
-    pos_punct = ["UNK" if not not_special_chars_inside(words[i]) or len(words[i]) == 1 else x for i, x in
-                 enumerate(pos_punct)]
+    pos_punct = ["CC" if (x in sony_const.noun_tag_list or x in sony_const.other_tag_list) and words[i] in sony_const.conjunctions else x for i, x in enumerate(pos_punct)]
+    pos_punct = ["UNK" if (x in sony_const.other_tag_list or x in sony_const.noun_tag_list) and words[i] in sony_const.no_meaning_words else x for i, x in enumerate(pos_punct)]
+    pos_punct = ["UNK" if not not_special_chars_inside(words[i]) or len(words[i]) == 1 else x for i, x in enumerate(pos_punct)]
     post_punct_str = "#".join(pos_punct)
     tag_pos, matched_tag_groups = match_with_position(pattern, post_punct_str)
     matched_texts = []
@@ -104,56 +101,42 @@ def get_pattern_from_text_nltk(pattern, text):
         matched_text = re.sub('\s{2,}', ' ', matched_text)
         matched_texts.append(matched_text)
     matched_texts = [x.strip() for x in matched_texts]
-    
     return matched_texts
 
-def get_pattern_from_text_ja(pattern, text):
+def get_pattern_from_text_janome(analyzers, text):
+    matched_texts = []
+    for analyzer in analyzers:
+        matched_texts.extend([token.surface for token in analyzer.analyze(text)])
+    return matched_texts
+
+def get_nouns_nltk(text: str, ngram_range: int = 3):
+    pattern = "(?:JJ#|NN#|NNS#|NNP#|NNPS#)*(?:NN|NNS|NNP|NNPS)+"
+    nouns = set()
+    for chunk in re.split(',|;|:|\.', text):
+        nouns.update(get_pattern_from_text_nltk(pattern, chunk))
+    nouns = set(x for x in nouns if len(x.split()) >= 2 or (len(x.split()) == 1 and not_special_chars_inside(x) and len(x) > 1))
+    nouns = generate_ngram_from_nouns(nouns, ngram_range)
+    return nouns
+
+def get_nouns_janome(text: str):
     global analyzer1, analyzer2
-    matched_texts = [token.surface for token in analyzer1.analyze(text)]
-    matched_texts.extend([token.surface for token in analyzer2.analyze(text)])
+    nouns = set()
+    for chunk in re.split("。", text):
+        nouns.update(get_pattern_from_text_janome([analyzer1, analyzer2], chunk))
+    return list(nouns)
+        
 
-    return matched_texts
-
-def get_name_mention_from_claims_nltk(claims, lang="en"):
-    name_mention_pattern = "(?:JJ#|NN#|NNS#|NNP#|NNPS#)*(?:NN|NNS|NNP|NNPS)+"
-    name_mentions = []
-    for i, claim in enumerate(claims):
-        short_texts = re.split(',|;|:|\.', str(claim))
-        for short_text in short_texts:
-            if lang == "en":
-                targets = get_pattern_from_text_nltk(name_mention_pattern, short_text)
-            elif lang == "ja":
-                targets = get_pattern_from_text_ja(name_mention_pattern, short_text)
-            else:
-                raise NotImplementedError
-                
-            name_mentions.extend(targets)
-    
-    if lang == "en":
-        name_mentions = [x for x in name_mentions if len(x.split()) >= 2 or (len(x.split()) == 1 and not_special_chars_inside(x) and len(x) > 1)]
-    name_mentions = list(set(name_mentions))
-    
-    return name_mentions
-
-
-def generate_ngrams(s, n, lang="en"):
-    # Convert to lowercases
-    if lang == "en":
-        s = s.lower()
-        # Replace all none alphanumeric characters with spaces
-        s = re.sub(r'[^a-zA-Z0-9\s]', ' ', s)
-        # Break sentence in the token, remove empty tokens
-        tokens = [token for token in s.split(" ") if token != ""]
-        # Use the zip function to help us generate n-grams
-        # Concatentate the tokens into ngrams and return
-    elif lang == "ja":
-        tokens = s
-    else:
-        raise NotImplementedError
+def generate_ngrams(s, n):
+    s = s.lower()
+    s = re.sub(r'[^a-zA-Z0-9\s]', ' ', s)
+    # Break sentence in the token, remove empty tokens
+    tokens = [token for token in s.split(" ") if token != ""]
+    # Use the zip function to help us generate n-grams
+    # Concatentate the tokens into ngrams and return
            
     ngrams = []
     for x in zip(*[tokens[i:] for i in range(n)]):
-        ngram = " ".join(x) if lang == "en" else "".join(x)
+        ngram = " ".join(x)
         try:
             float(ngram)
         except:
@@ -161,15 +144,15 @@ def generate_ngrams(s, n, lang="en"):
     # ngrams = [" ".join(ngram) for ngram in ngrams_generator]
     return ngrams
 
-def generate_n_gram_from_name_mentions(name_mentions,n_gram_range, lang="en"):
-    all_name_mention=[]
+def generate_ngram_from_nouns(name_mentions, ngram_range):
+    all_name_mention = []
     for name_mention in name_mentions:
-        for i in range(n_gram_range):
-            ngram_count=i+1
-            ngram_list=generate_ngrams(name_mention,ngram_count, lang)
+        for i in range(ngram_range):
+            ngram_count = i + 1
+            ngram_list = generate_ngrams(name_mention, ngram_count)
             all_name_mention.extend(ngram_list)
             all_name_mention.append(name_mention)
-    all_name_mention=list(set(all_name_mention))
+    all_name_mention = list(set(all_name_mention))
     return all_name_mention
 
 text="nonplanar defect amorphous an antifuse varactor formed on the substrate structure, the antifuse varactor having a third gate terminal"

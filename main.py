@@ -11,7 +11,7 @@ from train import *
 
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s %(module)s %(message)s", level=logging.DEBUG)
-    args = make_args()
+    args = make_run_args()
     run = wandb.init(
         project="patent-graph", 
         entity="joanna_cin", 

@@ -1,7 +1,14 @@
 from argparse import ArgumentParser
 
 
-def make_args():
+def make_data_args():
+    parser = ArgumentParser()
+    parser.add_argument("--data_dir", type=str, help="Data directory")
+    parser.add_argument("--lang", type=str, default="en", help="Patent language")
+    args = parser.parse_args()
+    return args
+
+def make_run_args():
     parser = ArgumentParser()
     parser.add_argument("--exp_name", type=str, help="Experiment name for logging")
     # graph args

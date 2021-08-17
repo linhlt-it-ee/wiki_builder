@@ -43,7 +43,6 @@ def extract_name_mentions(data_path: str, lang: str = "en") -> Dict[str, List[st
         else:
             raise NotImplementedError
         name_mention[doc["id"]] = nouns
-        break
     return name_mention
 
 def split_name_mention_list(mention_list, mention_dir, num_files):

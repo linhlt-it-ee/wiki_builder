@@ -14,15 +14,17 @@ import utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def prepare_graph(data_dir: str, par_num: List[int]) -> Tuple[DGLGraph, Dict, Dict]:
-    doc_mention_path = os.path.join(data_dir, "doc_name_mentions.json")
-    mention_concept_path = os.path.join(data_dir, "name_mention_links.json")
+
+def prepare_graph(data_dir: str, par_num: List[int]) -> Tuple[DGLGraph, Dict, Dict, int]:
     doc_path = os.path.join(data_dir, "data.ndjson")
-    doc_label_path = os.path.join(data_dir, "document_label_ids.json")
-    concept_path = os.path.join(data_dir, "entities_labels.json")
+    doc_label_path = os.path.join(data_dir, "doc_label_encoder.json")
+    cache_dir = os.path.join(data_dir, "cache")
+    doc_mention_path = os.path.join(cache_dir, "doc_mention.json")
+    mention_concept_path = os.path.join(cache_dir, "concept_links.json")
+    concept_path = os.path.join(cache_dir, "concept_labels.json")
     # saved path
-    doc_feat_path = os.path.join(data_dir, "doc_feat.pck")
-    concept_feat_path = os.path.join(data_dir, "concept_feat.pck")
+    doc_feat_path = os.path.join(cache_dir, "doc_feat.pck")
+    concept_feat_path = os.path.join(cache_dir, "concept_feat.pck")
 
     # broadcast relation between doc - mention - concept, then prune by `par_num`
     D, C, DvsC, CvsC = _broadcast(doc_mention_path, mention_concept_path, par_num)
@@ -127,9 +129,11 @@ def _embed_node(doc_path: str, doc_label_path: str, concept_path: str, D: Dict[s
     C_feat = [None] * len(C)
     doc_labels = utils.load_json(doc_label_path)
     encoder = utils.get_encoder(pretrained_node_encoder)
-
+    print(D)
     for doc in utils.load_ndjson(doc_path, pname="Encode documents"):
         id = D.get(doc["id"], None)
+        print(id)
+        exit()
         if id is not None:
             D_feat[id] = utils.get_text_embedding(encoder, doc["title"]).detach().cpu().numpy()
             D_label[id] = utils.get_onehot(doc["labels"], doc_labels)

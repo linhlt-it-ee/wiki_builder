@@ -1,6 +1,6 @@
 import os
 import logging
-from collections import deque
+from collections import deque, defaultdict
 from tqdm import tqdm
 
 import utils
@@ -12,24 +12,33 @@ def map_concepts(data_dir: str):
     mention_dir = os.path.join(cache_dir, "mentions")
     # saved path
     concept_path = os.path.join(cache_dir, "concept_labels.json")
-    trace_concepts(mention_dir, concept_path)
+    concept_link_path = os.path.join(cache_dir, "concept_links.json")
+    concepts, concept_links = trace_concepts(mention_dir)
+    utils.dump_json(concepts, concept_path)
+    utils.dump_json(concept_links, concept_link_path)
 
-def trace_concepts(mention_dir, concept_path):
+def trace_concepts(mention_dir):
     mention_paths = utils.get_file_name_in_dir(mention_dir, "txt")
     concepts = {}
+    concept_links = defaultdict(lambda : {"name_mention": set(), "label": None, "parents": []})
     for fname in tqdm(mention_paths, desc="Tracing concepts"):
         basename = os.path.splitext(fname)[0]
-        parent_path = basename + "_parents.json"
-        concept_info = utils.load(basename + "_entities.pck")
-        parents = {}
-        for cid, info in concept_info.items():
+        for cid, info in utils.load(basename + "_entities.pck").items():
             try:
-                parents[cid], label = trace_path(cid, info, max_level=3)
+                links, label = trace_path(cid, info, max_level=3)
             except KeyError:
-                logging.info(f"Cannot trace {cid}")
+                logging.info(f"Cannot trace {cid} based on: {info}")
+                continue
+            assert concept_links[cid]["label"] in (None, info["label"])
+            concept_links[cid]["label"] = info["label"]
+            concept_links[cid]["name_mention"].update(info["name_mention"])
             concepts.update(label)
-    utils.dump_json(parents, parent_path)
-    return concepts
+            concept_links[cid]["parents"].extend(links)
+
+    for x in concept_links:
+        concept_links[x]["name_mention"] = list(concept_links[x]["name_mention"])
+
+    return concepts, concept_links
 
 def cache_linkto(parent_links):
     linkto_infos = {}
@@ -48,7 +57,6 @@ def trace_path(root_id, entity, max_level):
     linkto_infos = cache_linkto(entity["parents"])
     labels = {root_id: entity["label"]}
     parents = []
-    
     # BFS to get parent up to max_level
     queue = deque()
     queue.append(root_id)

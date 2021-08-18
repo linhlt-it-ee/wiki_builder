@@ -2,41 +2,17 @@ import threading
 import logging
 import sys
 import os
-import utils.text_util as text_util
-import utils.file_util as file_util
-import utils.wiki_util as wiki_util
-import utils.graph_builder_from_wiki as wiki_graph_util
-import utils.excel_tree_level_export as excel_tree_level_export
+from .utils import text_utils, wiki_utils, excel_tree_level_export
+from .utils import graph_builder_from_wiki as wiki_graph_utils
+
 '''@HOW TO USE: search_wiki_with_threads_v3 function'''
 '''@folder_name: folder of name mentions which are splitted into smaller-sized file'''
 '''@start: start index of file in folder'''
 '''@end: end index of file in folder'''
 '''@iteration: iteration number for example if you want to find direct parent this number =1, for upper parent this number could be 2, 3'''
 '''@@@WARNING: max-iteration should be only 2'''
-#text_util.search_wiki_with_thread_by_version(sys.argv[1:][0],int(sys.argv[1:][1]),int(sys.argv[1:][2]),int(sys.argv[1:][3]))
-def search_wiki_with_threads(folder_name,start, end, iteration=3):
-    file_names = file_util.get_file_name_in_dir(folder_name, "txt")
-    threads = []
-    for i, file_name in enumerate(file_names[start:end]):
-        base_name = os.path.splitext(file_name)[0]
-        entities_file = base_name + "_entities.pck"
-        not_found_entities_file = base_name + "_entities_not_found.pck"
-        # if os.path.exists(entities_file):
-            # continue
-        thread1 = threading.Thread(target=search_wiki_with_forward_iteration,
-                                   args=(
-                                       file_name, 
-                                       entities_file,
-                                       not_found_entities_file, 
-                                       iteration
-                                       )
-                                   )
-        thread1.start()
-        threads.append(thread1)
-        logging.info(f"THREAD {i} START")
 
-    for thread in threads:
-        thread.join()
+
 
 def update_entity_description_shortname(input_dict,all_entities_mention_dict):
     total = len(list(input_dict.keys()))
@@ -114,27 +90,7 @@ def update_entity_details(folder_name,file_regex,output_path):
     file_util.dump_json(all_entities_from_mention,output_path+"_patent_entity_relations.json")
     excel_tree_level_export.demo(file_util.load_json("all_entity_level.json"))
     # update_other_children_nodes(parent_of_leaf,link_data,brief_dict)
-def search_wiki_with_forward_iteration(txt_file, output_entity_file, not_wiki_output, iter_num=3):
-    # lines = open("not_in_wiki_token_1710.txt", 'r').readlines()
-    lines = open(txt_file, 'r').readlines()
-    not_found_entity=[]
-    total = len(lines)
-    entity_dict={}
-    for i, line in enumerate(lines):
-        word = text_util.remove_characters('\n','',line)
-        word = text_util.remove_characters('-', ' ', word)
-        singu_word=text_util.convert_plural_to_singular(word)
-        entities = wiki_util.get_wiki_id_from_text(word,entity_dict,iter_num)
-        if singu_word !=word:
-            entities.extend(wiki_util.get_wiki_id_from_text(singu_word,entity_dict,iter_num))
-        if len(entities)== 0:
-            not_found_entity.append(word)
-        file_util.dump(entity_dict, output_entity_file)
-        file_util.dump(not_found_entity, not_wiki_output)
-        logging.debug(f"Finished {i}/{total}")
-    # file_util.dump(entity_dict, "entities_dict_wth_lvl.pck")
-    file_util.dump(entity_dict, output_entity_file)
-    file_util.dump(not_found_entity,not_wiki_output)
+
 
 if __name__ == "__main__":
     choice=int(sys.argv[1:][0])

@@ -24,7 +24,7 @@ def retrieve_concepts(data_dir: str, lang: str):
     utils.dump_json(doc_mention, doc_mention_path)
     # Split them to multiple files
     num_files = 50
-    mention = [e for x in doc_mention.values() for e in x]
+    mention = list(set(e for x in doc_mention.values() for e in x))
     split_name_mention_list(mention, mention_dir, num_files)
     # Retrieve concepts of name mentions
     search_wiki_with_threads(mention_dir, 0, num_files, iteration=3)
@@ -42,7 +42,7 @@ def extract_name_mentions(data_path: str, lang: str = "en") -> Dict[str, List[st
             nouns = data_utils.get_nouns_janome(doc["content"])
         else:
             raise NotImplementedError
-        name_mention[doc["id"]] = nouns
+        name_mention[doc["id"]] = [x.lower() for x in nouns]
     return name_mention
 
 def split_name_mention_list(mention_list, mention_dir, num_files):

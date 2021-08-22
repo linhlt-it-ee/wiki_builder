@@ -6,29 +6,28 @@ from dgl import DGLGraph
 from dgl.nn import HeteroGraphConv, GraphConv
 
 
-class RGCN(nn.Module):
+class RGCN2(nn.Module):
     def __init__(self, in_feat: int, hidden_feat: int, n_classes: int, n_layers: int, rel_names: List[str], aggregate: str = "sum"):
         super().__init__()
-        self.layers = nn.ModuleList()
+        self.convs = nn.ModuleList()
 
         last_feat = in_feat
         for _ in range(n_layers - 1):
-            self.layers.append(HeteroGraphConv(
+            self.convs.append(HeteroGraphConv(
                 {rel: GraphConv(last_feat, hidden_feat) for rel in rel_names},
                 aggregate=aggregate
             ))
             last_feat = hidden_feat
 
-        self.layers.append(HeteroGraphConv(
-            {rel: GraphConv(last_feat, n_classes) for rel in rel_names}, 
-            aggregate=aggregate
-        ))
+        self.clf = nn.Sequential(
+            nn.BatchNorm1d(last_feat),
+            nn.Linear(last_feat, n_classes),
+        )
 
     def forward(self, graph: DGLGraph, inputs: Dict, target_node: str, edge_weight: Dict = None):
         h = inputs
         mod_kwargs = {rel: {"edge_weight": weight} for rel, weight in edge_weight.items()}
-        for i, layer in enumerate(self.layers):
-            h = layer(graph, h, mod_kwargs=mod_kwargs)
-            if i != len(self.layers) - 1:
-                h = {k: F.relu(v) for k, v in h.items()}
-        return h[target_node]
+        for i, conv in enumerate(self.convs):
+            h = conv(graph, h, mod_kwargs=mod_kwargs)
+            h = {k: F.relu(v) for k, v in h.items()}
+        return self.clf(h[target_node])

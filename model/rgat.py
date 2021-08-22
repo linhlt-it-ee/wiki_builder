@@ -11,22 +11,21 @@ class RGAT(nn.Module):
     def __init__(self, in_feat: int, hidden_feat: int, n_classes: int, n_layers: int, aggregate: str = "sum", multihead_aggregate: str = "concat", rel_names: List[str] = None, num_heads: int = 2):
         super().__init__()
         self.layers = nn.ModuleList()
-        self.layers.append(HeteroGraphConv(
-            {rel: GATConv(in_feat, hidden_feat, num_heads) for rel in rel_names},
-            aggregate=aggregate
-        ))
+        self.multihead_agg_fn = self.get_multihead_aggregate_fn(multihead_aggregate)
+
+        last_feat = in_feat
         for _ in range(n_layers - 1):
-            last_feat = hidden_feat * num_heads if multihead_aggregate == "concat" else hidden_feat
+            next_feat = hidden_feat // num_heads if multihead_aggregate == "concat" else hidden_feat
             self.layers.append(HeteroGraphConv(
-                {rel: GATConv(last_feat, last_feat, num_heads) for rel in rel_names},
+                {rel: GATConv(last_feat, next_feat, num_heads) for rel in rel_names},
                 aggregate=aggregate
             ))
-        last_feat = hidden_feat * num_heads if multihead_aggregate == "concat" else hidden_feat
-        self.layers.append(HeteroGraphConv(
-            {rel: GraphConv(last_feat, n_classes) for rel in rel_names}, 
-            aggregate=aggregate
-        ))
-        self.multihead_agg_fn = self.get_multihead_aggregate_fn(multihead_aggregate)
+            last_feat = hidden_feat
+
+        self.clf = nn.Sequential(
+            nn.BatchNorm1d(last_feat),
+            nn.Linear(last_feat, n_classes),
+        )
 
     def get_multihead_aggregate_fn(self, multihead_aggregate):
         if multihead_aggregate == "concat":
@@ -41,6 +40,5 @@ class RGAT(nn.Module):
         h = graph.ndata["feat"]
         for i, layer in enumerate(self.layers):
             h = layer(graph, h)
-            if i != len(self.layers) - 1:
-                h = {k: self.multihead_agg_fn(v, F.relu) for k, v in h.items()}
-        return h[target_node]
+            h = {k: self.multihead_agg_fn(v, F.relu) for k, v in h.items()}
+        return self.clf(h[target_node])

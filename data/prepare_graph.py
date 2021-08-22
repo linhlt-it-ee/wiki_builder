@@ -2,7 +2,7 @@ import os
 import logging
 import sys
 sys.path.append("../")
-from typing import Tuple, Iterable, List, Dict
+from typing import Tuple, List, Dict
 from tqdm import tqdm
 from collections import defaultdict
 
@@ -15,7 +15,7 @@ import utils
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def prepare_graph(data_dir: str, par_num: List[int]) -> Tuple[DGLGraph, Dict, Dict, int]:
+def prepare_graph(data_dir: str, par_num: List[int], text_encoder: str, return_graph=False) -> Tuple[DGLGraph, Dict, Dict, int]:
     doc_path = os.path.join(data_dir, "data.ndjson")
     doc_label_path = os.path.join(data_dir, "doc_label_encoder.json")
     cache_dir = os.path.join(data_dir, "cache")
@@ -27,9 +27,11 @@ def prepare_graph(data_dir: str, par_num: List[int]) -> Tuple[DGLGraph, Dict, Di
     concept_feat_path = os.path.join(cache_dir, "concept_feat.pck")
 
     # broadcast relation between doc - mention - concept, then prune by `par_num`
+    if return_graph:
+        return _broadcast(doc_mention_path, mention_concept_path, par_num, return_graph)
     D, C, DvsC, CvsC = _broadcast(doc_mention_path, mention_concept_path, par_num)
     if not os.path.exists(doc_feat_path):
-        D_info, C_info = _embed_node(doc_path, doc_label_path, concept_path, D, C)
+        D_info, C_info = _embed_node(doc_path, doc_label_path, concept_path, D, C, text_encoder=text_encoder)
         utils.dump(D_info, doc_feat_path)
         utils.dump(C_info, concept_feat_path)
     else:
@@ -43,7 +45,6 @@ def prepare_graph(data_dir: str, par_num: List[int]) -> Tuple[DGLGraph, Dict, Di
             ("doc", "contain", "concept"): DvsC,
             ("concept", "in", "doc"): (DvsC[1], DvsC[0]),
             ("concept", "belong", "concept"): CvsC,
-            # ("concept", "elaborate", "concept"): (CvsC[1], CvsC[0]),
         },
         num_nodes_dict=num_nodes_dict
     )
@@ -53,19 +54,19 @@ def prepare_graph(data_dir: str, par_num: List[int]) -> Tuple[DGLGraph, Dict, Di
     graph.nodes["doc"].data["train_mask"] = torch.tensor(D_info[2]["train_mask"], dtype=torch.bool)
     graph.nodes["doc"].data["val_mask"] = torch.tensor(D_info[2]["val_mask"], dtype=torch.bool)
     graph.nodes["doc"].data["test_mask"] = torch.tensor(D_info[2]["test_mask"], dtype=torch.bool)
+    graph = dgl.add_self_loop(graph, etype="belong")
     logging.info(graph)
     num_classes = len(utils.load_json(doc_label_path))
-    graph = dgl.add_self_loop(graph, etype="belong")
 
     return graph.to(device), D, C, num_classes
 
-def _broadcast(doc_mention_path: str, mention_concept_path: str, par_num: List[int]):
+def _broadcast(doc_mention_path: str, mention_concept_path: str, par_num: List[int], return_graph=False):
     doc_mention = utils.load_json(doc_mention_path)
     mention_concept = utils.load_json(mention_concept_path)
     mention_ids = defaultdict(set)
     # mapping between name_mentions (text) and name_mentions IDs
     for mid, mention_info in mention_concept.items():
-        for label in mention_info["name_mention"]:
+        for label in set(x.lower() for x in mention_info["name_mention"]):  # match normalized nouns
             mention_ids[label].add(mid)
 
     # create concept graph
@@ -77,6 +78,7 @@ def _broadcast(doc_mention_path: str, mention_concept_path: str, par_num: List[i
 
     C = set()
     children = mention_concept.keys()
+    C1 = None
     for level, parlevel_num in enumerate(par_num, start=1):
         cnt = defaultdict(lambda : 0)
         for child in children:
@@ -89,9 +91,13 @@ def _broadcast(doc_mention_path: str, mention_concept_path: str, par_num: List[i
         children = sorted(cnt, key=cnt.get, reverse=True)[:parlevel_num]
         logging.info(f"Extracting {parlevel_num} parents level {level} with most children, got {len(children)}")
         C.update(children)
+        if level == 1:
+            C1 = children
     CvsC_graph = nx.DiGraph(CvsC_graph.subgraph(C))
     logging.info(f"CvsC graph: {CvsC_graph}")
     logging.info(f"C size: {len(C)}")
+    if return_graph:
+        return CvsC_graph, C1
     
     # create document graph
     DvsC_graph = nx.DiGraph()
@@ -122,29 +128,33 @@ def _broadcast(doc_mention_path: str, mention_concept_path: str, par_num: List[i
         CvsC[1].append(C[v])
     return D, C, DvsC, CvsC
 
-def _embed_node(doc_path: str, doc_label_path: str, concept_path: str, D: Dict[str, int], C: Dict[str, int], pretrained_node_encoder: str = "distilbert-base-uncased"):
+def _embed_node(doc_path: str, doc_label_path: str, concept_path: str, D: Dict[str, int], C: Dict[str, int], text_encoder: str = "distilbert-base-uncased"):
     D_feat = [None] * len(D)
     D_label = [None] * len(D)
+    D_feat = [None] * len(D)
     D_mask = {data_type: [None] * len(D) for data_type in ("train_mask", "val_mask", "test_mask")}
     C_feat = [None] * len(C)
+
     doc_labels = utils.load_json(doc_label_path)
-    encoder = utils.get_encoder(pretrained_node_encoder)
-    print(D)
     for doc in utils.load_ndjson(doc_path, pname="Encode documents"):
         id = D.get(doc["id"], None)
-        print(id)
-        exit()
         if id is not None:
-            D_feat[id] = utils.get_text_embedding(encoder, doc["title"]).detach().cpu().numpy()
+            D_feat[id] = doc["title"]
             D_label[id] = utils.get_onehot(doc["labels"], doc_labels)
             D_mask["train_mask"][id] = doc["is_train"]
             D_mask["val_mask"][id] = doc["is_dev"]
             D_mask["test_mask"][id] = doc["is_test"]
+    D_feat = _encode_text(D_feat, text_encoder)
 
     concepts = utils.load_json(concept_path)
     for cid, label in tqdm(concepts.items(), "Encode concepts"):
         id = C.get(cid, None)
         if id is not None:
-            C_feat[id] = utils.get_text_embedding(encoder, label).detach().cpu().numpy()
+            C_feat[id] = label
+    C_feat = _encode_text(C_feat, text_encoder)
 
     return (D_feat, D_label, D_mask), (C_feat,)
+
+def _encode_text(text: List[str], text_encoder: str):
+    encoder = utils.get_encoder(pretrained_model_name=text_encoder)
+    return utils.get_bert_features(encoder, text)

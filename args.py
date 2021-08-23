@@ -29,5 +29,6 @@ def make_run_args():
     parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate")
     parser.add_argument("--epochs", type=int, default=500, help="Number of training epochs")
     parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for classification")
+    parser.add_argument("--strategy_name", type=str, default="lc", help="Active learning query strategy")
     args = parser.parse_args()
     return args

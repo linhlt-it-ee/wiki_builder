@@ -12,7 +12,7 @@ from train import *
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s %(module)s %(message)s", level=logging.DEBUG)
     args = make_run_args()
-    run = wandb.init(
+    logger = wandb.init(
         project="patent-graph", 
         entity="joanna_cin", 
         name=args.exp_name, 
@@ -27,5 +27,5 @@ if __name__ == "__main__":
         graph, doc_ids, concept_ids, n_classes = prepare_graph(args.data_dir, [args.par1_num, args.par2_num, args.par3_num], text_encoder=args.text_encoder)
     model = prepare_model(args.model_name, graph, n_classes, args.hidden_feat, args.n_layers, args.aggregate, args.num_heads, args.multihead_aggregate, args.dropout)
     writer = SummaryWriter()
-    train(model, graph, target_node, args.lr, args.epochs, args.threshold, writer, exp_name=args.exp_name)
-    run.finish()
+    train(model, graph, target_node, args.lr, args.epochs, args.threshold, args.strategy_name, writer, exp_name=args.exp_name)
+    logger.finish()

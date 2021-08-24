@@ -52,20 +52,18 @@ def train(
             optimizer.step()
             pbar.set_postfix(loss=loss.item(), lr="{:.1e}".format(lr_scheduler.get_last_lr()[0]))
             writer.add_scalar("loss/train", loss.item(), epoch)
-
-            # choose next samples
-            if use_active_learning and round != (n_rounds - 1):
-                probs = torch.sigmoid(logits.detach().cpu())
-                query_train_mask = strategy.query(probs)
-
             if (epoch + 1) % update_freq == 0:
                 val_scores = eval(labels, logits, val_mask, threshold=threshold)
                 print(val_scores)
                 for k, v in val_scores.items():
                     writer.add_scalar(f"{k}/val", v, iteration)
-
             if iteration % 100 == 0:
                 lr_scheduler.step()
+
+        # choose next samples for the next round (except the last)
+        if use_active_learning and round != (n_rounds - 1):
+            probs = torch.sigmoid(logits.detach().cpu())
+            query_train_mask = strategy.query(probs)
 
     # inference at the last round
     print("**** TEST ****")

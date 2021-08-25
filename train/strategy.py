@@ -45,6 +45,23 @@ class EntropySampling(Strategy):
         self.update(select_idx)
         return self.train_mask
 
+class MarginSampling(Strategy):
+    def query(self, probs: torch.Tensor = None, features: torch.Tensor = None) -> torch.BoolTensor:
+        top2_p = probs[self.unlabel_mask].sort(dim=1).values[:, -2:]
+        margin = top2_p[:, 1] - top2_p[:, 0]
+        unlabel_idx = torch.arange(self.n_samples)[self.unlabel_mask]
+        select_idx = unlabel_idx[margin.sort().indices[:self.n_samples_per_round]]
+        self.update(select_idx)
+        return self.train_mask
+
+class MarginSampling2(Strategy):
+    def query(self, probs: torch.Tensor = None, features: torch.Tensor = None) -> torch.BoolTensor:
+        margin = torch.abs(probs[self.unlabel_mask] - 0.5).min(dim=1).values
+        unlabel_idx = torch.arange(self.n_samples)[self.unlabel_mask]
+        select_idx = unlabel_idx[margin.sort().indices[:self.n_samples_per_round]]
+        self.update(select_idx)
+        return self.train_mask
+
 class KCenterGreedy(Strategy):
     def query(self, probs: torch.Tensor = None, features: torch.Tensor = None) -> torch.BoolTensor:
         features = features.numpy()
@@ -66,6 +83,10 @@ def prepare_strategy(strategy_name: str, unlabel_mask: torch.BoolTensor, n_round
         return RandomSampling(unlabel_mask, n_rounds)
     elif strategy_name == "lc":
         return LeastConfidence(unlabel_mask, n_rounds)
+    elif strategy_name == "margin":
+        return MarginSampling(unlabel_mask, n_rounds)
+    elif strategy_name == "margin2":
+        return MarginSampling2(unlabel_mask, n_rounds)
     elif strategy_name == "entropy":
         return EntropySampling(unlabel_mask, n_rounds)
     elif strategy_name == "kcenter":

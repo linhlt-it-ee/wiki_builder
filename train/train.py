@@ -18,9 +18,6 @@ def run(
         lr: float, epochs: int, threshold: float = 0.5, strategy_name: str = "lc", 
         writer: SummaryWriter = None, exp_name: str = "test"
     ):
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
-    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda it : lr * 0.9 ** (it - 1))
     train_mask = graph.nodes[target_node].data["train_mask"]
     val_mask = graph.nodes[target_node].data["val_mask"]
     test_mask = graph.nodes[target_node].data["test_mask"]
@@ -28,6 +25,9 @@ def run(
     inputs = graph.ndata["feat"]
     edge_weight = graph.edata["weight"]
 
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda it : lr * 0.9 ** (it - 1))
     use_active_learning = True if strategy_name is not None else False
     if use_active_learning:
         n_rounds = 100

@@ -1,6 +1,7 @@
 import os
 import logging
 from tqdm import trange
+from typing import Dict
 
 import torch
 import pandas as pd
@@ -23,14 +24,17 @@ def run(
     train_mask = graph.nodes[target_node].data["train_mask"]
     val_mask = graph.nodes[target_node].data["val_mask"]
     test_mask = graph.nodes[target_node].data["test_mask"]
+    labels = graph.nodes[target_node].data["label"]
+    inputs = graph.ndata["feat"]
+    edge_weight = graph.edata["weight"]
 
     use_active_learning = True if strategy_name is not None else False
     if use_active_learning:
         n_rounds = 100
         round_epoch = epochs // n_rounds
-        strategy = prepare_strategy(strategy_name, train_mask, n_rounds)
+        strategy = prepare_strategy(strategy_name, train_mask.cpu(), n_rounds)
         query_train_mask = strategy.random_mask()
-        update_freq = min(10, round_epoch)
+        update_freq = round_epoch
     else:
         n_rounds = 1
         round_epoch = epochs
@@ -43,54 +47,64 @@ def run(
         pbar = trange(round_epoch, desc="Training")
         for epoch in pbar:
             iteration += 1
-            logits, loss = train(model, graph, target_node, query_train_mask, criterion, optimizer)
+            model.train()
+            optimizer.zero_grad()
+            features, logits = model(graph, inputs, target_node, edge_weight=edge_weight, return_features=True)
+            loss = criterion(logits[query_train_mask], labels[query_train_mask].type_as(logits))
+            loss.backward()
+            optimizer.step()
             pbar.set_postfix(loss=loss.item(), lr="{:.1e}".format(lr_scheduler.get_last_lr()[0]))
             writer.add_scalar("loss/train", loss.item(), epoch)
+
             # validation
-            if epoch == 0 or (epoch + 1) % update_freq == 0:
-                train_scores = predict(model, graph, target_node, train_mask, threshold=threshold)
-                for k, v in train_scores.items():
-                    writer.add_scalar(f"{k}/train", v, iteration)
-                val_scores = predict(model, graph, target_node, val_mask, threshold=threshold)
+            if (epoch + 1) % update_freq == 0:
+                log_iteration = (round + 1) if use_active_learning else iteration
+                train_scores = predict(
+                    model, graph, target_node, 
+                    inputs, edge_weight, labels, train_mask, 
+                    threshold=threshold
+                )
+                log(writer, train_scores, log_iteration, type="train")
+                val_scores = predict(
+                    model, graph, target_node, 
+                    inputs, edge_weight, labels, val_mask, 
+                    threshold=threshold
+                )
+                log(writer, val_scores, log_iteration, type="val")
                 print(val_scores)
-                for k, v in val_scores.items():
-                    writer.add_scalar(f"{k}/val", v, iteration)
-            # update lr every 100 iterations
+
             if iteration % 100 == 0:
                 lr_scheduler.step()
 
         # choose next samples for the next round (except the last)
         if use_active_learning and round != (n_rounds - 1):
-            logits = logits.detach().cpu()
-            probs = torch.sigmoid(logits)
-            query_train_mask = strategy.query(probs, logits)
+            probs = torch.sigmoid(logits.detach().cpu())
+            query_train_mask = strategy.query(probs, features=features.detach().cpu())
+            # query_train_mask = strategy.query(probs, features=inputs[target_node].cpu())
 
     # inference at the last round
     print("**** TEST ****")
-    test_scores = predict(model, graph, target_node, test_mask, threshold=threshold)
+    test_scores = predict(
+        model, graph, target_node, inputs, 
+        edge_weight, labels, test_mask, 
+        threshold=threshold
+    )
+    log(writer, test_scores, iteration=0, type="test")
     print(test_scores)
-    for k, v in test_scores.items():
-        writer.add_scalar(f"{k}/test", v, 0)
-    # save classification report
+
     os.makedirs("results", exist_ok=True)
     report = pd.Series(test_scores).sort_index() * 100
     report.to_csv(os.path.join("results", f"{exp_name}.csv"), float_format="%.2f")
 
-def train(model, graph, target_node, mask, criterion, optimizer):
-    labels = graph.nodes[target_node].data["label"]
-    model.train()
-    optimizer.zero_grad()
-    logits = model(graph, graph.ndata["feat"], target_node, graph.edata["weight"])
-    loss = criterion(logits[mask], labels[mask].type_as(logits))
-    loss.backward()
-    optimizer.step()
-    return logits, loss
-
-def predict(model, graph, target_node, mask, threshold: float = 0.5):
-    labels = graph.nodes[target_node].data["label"]
+def predict(
+        model: nn.Module, graph: DGLGraph, target_node: str,
+        inputs: torch.Tensor, edge_weight: torch.Tensor,
+        labels: torch.Tensor, mask: torch.BoolTensor,
+        threshold: float = 0.5
+    ):
     model.eval()
     with torch.no_grad():
-        logits = model(graph, graph.ndata["feat"], target_node, graph.edata["weight"])
+        logits = model(graph, inputs, target_node, edge_weight=edge_weight)
         scores = eval(labels, logits, mask, threshold=threshold)
     return scores
 
@@ -98,3 +112,7 @@ def eval(labels, logits, mask: torch.BoolTensor, threshold: float = 0.5):
     y_true = labels[mask].cpu()
     y_prob = torch.sigmoid(logits[mask]).cpu()
     return compute_metrics(y_true, y_prob, threshold=threshold)
+
+def log(writer: SummaryWriter, scores: Dict, iteration: int = 0, type: str = "train"):
+    for k, v in scores.items():
+        writer.add_scalar(f"{k}/{type}", v, iteration)

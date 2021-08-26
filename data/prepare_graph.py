@@ -14,8 +14,7 @@ import utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-
-def prepare_graph(data_dir: str, par_num: List[int], text_encoder: str, return_graph=False) -> Tuple[DGLGraph, Dict, Dict, int]:
+def prepare_graph(data_dir: str, par_num: List[int], return_graph=False) -> Tuple[DGLGraph, Dict, Dict, int]:
     doc_path = os.path.join(data_dir, "data.ndjson")
     doc_label_path = os.path.join(data_dir, "doc_label_encoder.json")
     cache_dir = os.path.join(data_dir, "cache")
@@ -23,20 +22,18 @@ def prepare_graph(data_dir: str, par_num: List[int], text_encoder: str, return_g
     mention_concept_path = os.path.join(cache_dir, "concept_links.json")
     concept_path = os.path.join(cache_dir, "concept_labels.json")
     # saved path
-    doc_feat_path = os.path.join(cache_dir, "doc_feat.pck")
-    concept_feat_path = os.path.join(cache_dir, "concept_feat.pck")
+    graph_info_path = os.path.join(cache_dir, "graph.pck")
 
     # broadcast relation between doc - mention - concept, then prune by `par_num`
     if return_graph:
-        return _broadcast(doc_mention_path, mention_concept_path, par_num, return_graph)
-    D, C, DvsC, CvsC = _broadcast(doc_mention_path, mention_concept_path, par_num)
-    if not os.path.exists(doc_feat_path):
-        D_info, C_info = _embed_node(doc_path, doc_label_path, concept_path, D, C, text_encoder=text_encoder)
-        utils.dump(D_info, doc_feat_path)
-        utils.dump(C_info, concept_feat_path)
+        return _broadcast(doc_mention_path, mention_concept_path, par_num, return_graph=True)
+    if not os.path.exists(graph_info_path):
+        D, C, DvsC, CvsC = _broadcast(doc_mention_path, mention_concept_path, par_num)
+        D_info, C_info = _embed_node(doc_path, doc_label_path, concept_path, D, C)
+        graph_info = (D, C, D_info, C_info, DvsC, CvsC)
+        utils.dump(graph_info, graph_info_path)
     else:
-        D_info = utils.load(doc_feat_path)
-        C_info = utils.load(concept_feat_path)
+        D, C, D_info, C_info, DvsC, CvsC = utils.load(graph_info_path)
 
     # create heterogenous graph
     num_nodes_dict = {"doc": len(D), "concept": len(C)}
@@ -101,7 +98,7 @@ def _broadcast(doc_mention_path: str, mention_concept_path: str, par_num: List[i
     
     # create document graph
     DvsC_graph = nx.DiGraph()
-    D = doc_mention.keys()
+    D = list(doc_mention.keys())
     for did, mentions in doc_mention.items():
         DvsC_graph.add_node(did)
         # traverse meanings of a name_mention in a document

@@ -9,7 +9,6 @@ class Strategy:
         self.n_samples = len(self.unlabel_mask)
         self.train_mask = torch.zeros(self.n_samples, dtype=torch.bool)
         self.n_samples_per_round = ceil(sum(self.unlabel_mask).item() / n_rounds)
-        self.randomizer = np.random.RandomState(seed=1)
 
     def update(self, select_idx):
         self.train_mask[select_idx] = True
@@ -17,7 +16,7 @@ class Strategy:
 
     def random_mask(self) -> torch.BoolTensor:
         train_idx = torch.where(self.unlabel_mask)[0].numpy()
-        rand_idx = self.randomizer.choice(train_idx, size=self.n_samples_per_round)
+        rand_idx = np.random.choice(train_idx, replace=False, size=self.n_samples_per_round)
         self.update(rand_idx)
         return self.train_mask
 

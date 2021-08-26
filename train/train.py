@@ -15,7 +15,7 @@ from .metrics import compute_metrics
 
 def run(
         model: nn.Module, graph: DGLGraph, target_node: str, 
-        lr: float, epochs: int, threshold: float = 0.5, strategy_name: str = "lc", 
+        lr: float, epochs: int = 500, threshold: float = 0.5, strategy_name: str = None, 
         writer: SummaryWriter = None, exp_name: str = "test"
     ):
     train_mask = graph.nodes[target_node].data["train_mask"]
@@ -40,8 +40,17 @@ def run(
         round_epoch = epochs
         query_train_mask = train_mask
         update_freq = 100
-
+    
     iteration = 0
+    train_scores = predict(
+        model, graph, target_node, inputs, edge_weight, labels, train_mask, threshold=threshold
+    )
+    val_scores = predict(
+        model, graph, target_node, inputs, edge_weight, labels, val_mask, threshold=threshold
+    )
+    log(writer, train_scores, 0, type="train")
+    log(writer, val_scores, 0, type="val")
+
     for round in range(n_rounds):
         logging.info(f"START ROUND {round + 1}")
         pbar = trange(round_epoch, desc="Training")
@@ -60,16 +69,12 @@ def run(
             if (epoch + 1) % update_freq == 0:
                 log_iteration = (round + 1) if use_active_learning else iteration
                 train_scores = predict(
-                    model, graph, target_node, 
-                    inputs, edge_weight, labels, train_mask, 
-                    threshold=threshold
+                    model, graph, target_node, inputs, edge_weight, labels, train_mask, threshold=threshold
+                )
+                val_scores = predict(
+                    model, graph, target_node, inputs, edge_weight, labels, val_mask, threshold=threshold
                 )
                 log(writer, train_scores, log_iteration, type="train")
-                val_scores = predict(
-                    model, graph, target_node, 
-                    inputs, edge_weight, labels, val_mask, 
-                    threshold=threshold
-                )
                 log(writer, val_scores, log_iteration, type="val")
                 print(val_scores)
 
@@ -85,9 +90,7 @@ def run(
     # inference at the last round
     print("**** TEST ****")
     test_scores = predict(
-        model, graph, target_node, inputs, 
-        edge_weight, labels, test_mask, 
-        threshold=threshold
+        model, graph, target_node, inputs, edge_weight, labels, test_mask, threshold=threshold
     )
     log(writer, test_scores, iteration=0, type="test")
     print(test_scores)
@@ -95,6 +98,7 @@ def run(
     os.makedirs("results", exist_ok=True)
     report = pd.Series(test_scores).sort_index() * 100
     report.to_csv(os.path.join("results", f"{exp_name}.csv"), float_format="%.2f")
+    return model
 
 def predict(
         model: nn.Module, graph: DGLGraph, target_node: str,

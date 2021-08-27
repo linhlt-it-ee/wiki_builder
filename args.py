@@ -18,7 +18,7 @@ def make_run_args():
     parser.add_argument("--par1_num", type=int, default=-1, help="Number of 1-hop parents for each node")
     parser.add_argument("--par2_num", type=int, default=-1, help="Number of 2-hop parents for each node")
     parser.add_argument("--par3_num", type=int, default=-1, help="Number of 3-hop parents for each node")
-    parser.add_argument("--feature_type", type=str, default="ours", help="Whether to use `textgcn` features, `ours`, or `both`")
+    parser.add_argument("--feature_type", type=str, default="ours", help="Whether to use `textgcn` features, `ours`, or `mixed`")
     parser.add_argument("--aggregate", type=str, default="sum", help="Aggregation function on neighboring nodes")
     parser.add_argument("--multihead_aggregate", type=str, default="concat", help="Aggregate function on attention heads")
     parser.add_argument("--num_heads", type=int, default=2, help="Number of attention heads")

@@ -19,11 +19,7 @@ def stem_text(doc_content_list: List[str]):
 def split_tokenizer(text):
     return text.split()
 
-def get_pmi(doc_content_list: List[str], vocab: List[str], cache_dir: str = "./tmp"):
-    # build vocab
-    with open(os.path.join(cache_dir, "vocab.txt"), "w") as f:
-        f.write("\n".join(vocab))
-
+def get_pmi(doc_content_list: List[str], vocab: List[str]):
     vocab = set(vocab)
     word_freq = defaultdict(lambda : 0)
     for doc_words in doc_content_list:

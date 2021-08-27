@@ -11,7 +11,7 @@ def get_encoder(pretrained_model_name: str = "distilbert-base-uncased"):
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
     return (model, tokenizer)
 
-def get_bert_features(encoder: Tuple[AutoModel, AutoTokenizer], text: List[str], max_length: int = 64, kind: str = "pool_first"):
+def get_bert_features(encoder: Tuple[AutoModel, AutoTokenizer], text: List[str], max_length: int = 32, kind: str = "pool_first"):
     model, tokenizer = encoder
 
     def encode(x):

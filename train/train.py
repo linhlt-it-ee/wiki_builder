@@ -50,6 +50,7 @@ def run(
     )
     log(writer, train_scores, 0, type="train")
     log(writer, val_scores, 0, type="val")
+    print(val_scores)
 
     for round in range(n_rounds):
         logging.info(f"START ROUND {round + 1}")

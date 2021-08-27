@@ -27,7 +27,7 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None) -
     doc_info_path = os.path.join(cache_dir, "doc_info.pck")
     doc_concept_info_path = os.path.join(cache_dir, "doc_concept_info.pck")
 
-    # create heterogeneous graph
+    # loading nodes and edges
     num_nodes_dict, data_dict = {}, {}
     nodes, edges = defaultdict(lambda : {}), defaultdict(lambda : {})
     
@@ -62,6 +62,7 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None) -
         edges["word-in"]["weight"] = torch.tensor(np.asarray(WvsD_weight[WvsD]).squeeze(), dtype=torch.float32)
         edges["relate-to"]["weight"] = torch.tensor(np.asarray(WvsW_weight[WvsW]).squeeze(), dtype=torch.float32)
 
+    # create heterogeneous graph
     graph = dgl.heterograph(data_dict=data_dict, num_nodes_dict=num_nodes_dict)
     num_classes = len(utils.load_json(doc_label_path))
     for ntype in nodes:
@@ -70,8 +71,8 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None) -
     for etype in edges:
         for dtype in edges[etype]:
             graph.edges[etype].data[dtype] = edges[etype][dtype]
-
     logging.info(graph)
+
     return graph.to(device), D, num_classes
 
 def get_document(doc_path: str, doc_label_path: str):
@@ -97,7 +98,7 @@ def get_document(doc_path: str, doc_label_path: str):
 
     return D, D_feat, D_label, D_mask, doc_content
 
-def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, mention_concept_path: str, par_num: List[int], return_graph: bool = False):
+def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, mention_concept_path: str, par_num: List[int]):
     doc_mention = utils.load_json(doc_mention_path)
     valid_mentions = set()
     for x in doc_mention.values():
@@ -132,8 +133,6 @@ def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, ment
     CvsC_graph = nx.DiGraph(CvsC_graph.subgraph(C))
     logging.info(f"CvsC graph: {CvsC_graph}")
     logging.info(f"C size: {len(C)}")
-    if return_graph:
-        return CvsC_graph, C1
     
     # mapping name_mentions and their IDs to connect a document and its mentioned concepts
     mention_ids = defaultdict(set)
@@ -172,6 +171,7 @@ def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, ment
     for u, v in CvsC_graph.edges:
         CvsC[0].append(C[u])
         CvsC[1].append(C[v])
+
     return C, C_feat, DvsC, CvsC
 
 def get_document_word(doc_content: List[str], word2word_path: str, vocab_size: int = 5000):

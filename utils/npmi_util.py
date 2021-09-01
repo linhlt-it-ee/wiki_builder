@@ -6,16 +6,20 @@ from collections import defaultdict
 import nltk
 import numpy as np
 from tqdm import tqdm
-from nltk.stem import porter
+from nltk.stem import porter, WordNetLemmatizer
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 stemmer = porter.PorterStemmer()
+lemmatizer = WordNetLemmatizer()
 
-def stem_text(doc_content_list: List[str]):
+def normalize_text(doc_content_list: List[str]):
     res = []
-    for doc in tqdm(doc_content_list, desc="Stemming"):
-        words = [w for w in nltk.wordpunct_tokenize(doc) if w.isalpha()]
-        res.append(" ".join([stemmer.stem(x) for x in words]))
+    for doc in tqdm(doc_content_list, desc="Normalizing"):
+        words = [w for w in nltk.wordpunct_tokenize(doc) if w.isalpha() and len(w) > 2]
+        words = [lemmatizer.lemmatize(x, "v") for x in words]
+        words = [lemmatizer.lemmatize(x, "n") for x in words]
+        words = [stemmer.stem(x) for x in words]
+        res.append(" ".join(words).lower())
     return res
 
 def split_tokenizer(text):
@@ -29,7 +33,7 @@ def get_pmi(doc_content_list: List[str], vocab: List[str]):
             if word in vocab:
                 word_freq[word] += 1
 
-    assert len(word_freq) == len(vocab)
+    assert len(word_freq) == len(vocab), f"Vocab size mismatch: {len(word_freq)} != {len(vocab)}"
     word_doc_list = defaultdict(list)
     for i in range(len(doc_content_list)):
         doc_words = doc_content_list[i]

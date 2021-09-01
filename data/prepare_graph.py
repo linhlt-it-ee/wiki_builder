@@ -16,7 +16,7 @@ import utils
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None, return_graph: bool = False) -> Tuple[DGLGraph, Dict, Dict, int]:
-    doc_path = os.path.join(data_dir, "data.ndjson")
+    doc_path = os.path.join(data_dir, "merge_data.ndjson")
     doc_label_path = os.path.join(data_dir, "doc_label_encoder.json")
     cache_dir = os.path.join(data_dir, "cache")
     doc_mention_path = os.path.join(cache_dir, "doc_mention.json")
@@ -46,37 +46,42 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None, r
     # getting other nodes
     if "concept" in feature_type:
         C, C_feat, DvsC, CvsC = _cache_to_path(doc_concept_info_path, get_document_concept, D, concept_path, doc_mention_path, mention_concept_path, par_num)
+        data_dict.update({
+            ("doc", "concept#have", "concept"): DvsC,
+            ("concept", "concept#in", "doc"): (DvsC[1], DvsC[0]),
+            ("concept", "concept#relate", "concept"): CvsC,
+            ("concept", "rev-concept#relate", "concept"): (CvsC[1], CvsC[0]),
+        })
         num_nodes_dict["concept"] = len(C)
         nodes["concept"]["feat"] = torch.tensor(C_feat, dtype=torch.float32)
-        data_dict.update({
-            ("doc", "include-concept", "concept"): DvsC,
-            ("concept", "concept-in", "doc"): (DvsC[1], DvsC[0]),
-            ("concept", "belong", "concept"): CvsC,
-        })
         
     if "word" in feature_type:
         W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight = get_document_word(doc_content, word2word_path)
-        WvsD_weight = DvsW_weight.transpose()
-        WvsD = WvsD_weight.nonzero()
+        rev_DvsW_weight = DvsW_weight.transpose()
+        rev_DvsW = rev_DvsW_weight.nonzero()
+        rev_WvsW_weight = WvsW_weight.transpose()
+        rev_WvsW = rev_WvsW_weight.nonzero()
+        data_dict.update({
+            ("doc", "word#have", "word"): DvsW,
+            ("word", "word#in", "doc"): rev_DvsW,
+            ("word", "word#relate", "word"): WvsW,
+            ("word", "rev-word#relate", "word"): rev_WvsW,
+        })
         num_nodes_dict["word"] = len(W)
         nodes["word"]["feat"] = torch.tensor(W_feat, dtype=torch.float32)
-        edges["include-word"]["weight"] = torch.tensor(np.asarray(DvsW_weight[DvsW]).squeeze(), dtype=torch.float32)
-        edges["word-in"]["weight"] = torch.tensor(np.asarray(WvsD_weight[WvsD]).squeeze(), dtype=torch.float32)
-        edges["relate-to"]["weight"] = torch.tensor(np.asarray(WvsW_weight[WvsW]).squeeze(), dtype=torch.float32)
-        data_dict.update({
-            ("doc", "include-word", "word"): DvsW,
-            ("word", "word-in", "doc"): WvsD,
-            ("word", "relate-to", "word"): WvsW,
-        })
+        edges["word#have"]["weight"] = torch.tensor(np.asarray(DvsW_weight[DvsW]).squeeze(), dtype=torch.float32)
+        edges["word#in"]["weight"] = torch.tensor(np.asarray(rev_DvsW_weight[rev_DvsW]).squeeze(), dtype=torch.float32)
+        edges["word#relate"]["weight"] = torch.tensor(np.asarray(WvsW_weight[WvsW]).squeeze(), dtype=torch.float32)
+        edges["rev-word#relate"]["weight"] = torch.tensor(np.asarray(rev_WvsW_weight[rev_WvsW]).squeeze(), dtype=torch.float32)
 
     if "cluster" in feature_type:
         Cl_feat, DvsCl = get_document_cluster(D, D_feat)
+        data_dict.update({
+            ("doc", "cluster#form", "cluster"): DvsCl,
+            ("cluster", "cluster#in", "doc"): (DvsCl[1], DvsCl[0]),
+        })
         num_nodes_dict["cluster"] = len(Cl_feat)
         nodes["cluster"]["feat"] = torch.tensor(Cl_feat, dtype=torch.float32)
-        data_dict.update({
-            ("doc", "form", "cluster"): DvsCl,
-            ("cluster", "divide", "doc"): (DvsCl[1], DvsCl[0]),
-        })
 
     # create heterogeneous graph
     graph = dgl.heterograph(data_dict=data_dict, num_nodes_dict=num_nodes_dict)
@@ -105,12 +110,12 @@ def get_document(doc_path: str, doc_label_path: str):
         id = D.get(doc["id"], None)
         if id is not None:
             doc_content[id] = doc["content"]
-            D_feat[id] = doc["title"]
+            D_feat[id] = doc["desc"]
             D_label[id] = utils.get_onehot(doc["labels"], doc_labels)
             D_mask["train_mask"][id] = doc["is_train"]
             D_mask["val_mask"][id] = doc["is_dev"]
             D_mask["test_mask"][id] = doc["is_test"]
-    D_feat = _encode_text(D_feat)
+    D_feat = _encode_text(D_feat, max_length=512)
 
     return D, D_feat, D_label, D_mask, doc_content
 
@@ -154,7 +159,6 @@ def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, ment
         C.update(children)
         C_par[level] = children
     C_all.update(children)
-
     if return_graph:
         return nx.DiGraph(CvsC_graph.subgraph(C_all)), C_par
 
@@ -202,29 +206,25 @@ def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, ment
 
     return C, C_feat, DvsC, CvsC
 
-def get_document_word(doc_content: List[str], word2word_path: str, vocab_size: int = 5000):
+def get_document_word(doc_content: List[str], word2word_path: str):
     if os.path.exists(word2word_path):
-        W, DvsW_weight, WvsW_weight = utils.load(word2word_path)
+        W, W_feat, DvsW_weight, WvsW_weight = utils.load(word2word_path)
     else:
-        doc_content = utils.stem_text(doc_content)
+        doc_content = utils.normalize_text(doc_content)
         DvsW_weight, W = utils.get_tfidf_score(doc_content)
+        W_feat = utils.get_word_embedding(list(W.keys()), corpus=doc_content)
         WvsW_weight = utils.get_pmi(doc_content, vocab=list(W.keys()))
-        utils.dump((W, DvsW_weight, WvsW_weight), word2word_path)
+        utils.dump((W, W_feat, DvsW_weight, WvsW_weight), word2word_path)
 
-    """
-    W = {k: W[k] for k in list(W.keys())[:vocab_size]}
-    DvsW_weight = DvsW_weight[:, :vocab_size]
-    WvsW_weight = WvsW_weight[:vocab_size, :vocab_size]
-    """
     DvsW = DvsW_weight.nonzero()
     WvsW = WvsW_weight.nonzero()
-    W_feat = _encode_text(list(W.keys()))
+    # W_feat = _encode_text(list(W.keys()))
 
     return W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight
 
-def _encode_text(text: List[str], text_encoder: str = "distilbert-base-uncased"):
+def _encode_text(text: List[str], max_length: int = 64, text_encoder: str = "distilbert-base-uncased"):
     encoder = utils.get_encoder(pretrained_model_name=text_encoder)
-    return utils.get_bert_features(encoder, text)
+    return utils.get_bert_features(encoder, text, max_length=max_length)
 
 def _cache_to_path(path: str, fn: Callable, *args, **kwargs):
     if os.path.exists(path):

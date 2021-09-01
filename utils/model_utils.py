@@ -1,6 +1,8 @@
 import torch
+import os
 from typing import List, Dict, Tuple
 
+import gensim
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
@@ -34,3 +36,15 @@ def get_onehot(labels: List[str], label_ids: Dict[str, int]):
     for x in labels:
         embed[label_ids[x]] = 1
     return embed
+
+def get_word_embedding(words: List[str], corpus: List[str], cache_dir="./tmp"):
+    sentences = [sent.split() for sent in corpus]
+    os.makedirs(cache_dir, exist_ok=True)
+    model_path = os.path.join(cache_dir, "word2vec.model")
+    if not os.path.exists(model_path): 
+        model = gensim.models.Word2Vec(sentences=sentences, vector_size=768, window=5, workers=4)
+        model.save(model_path)
+    else:
+        model.load(model_path)
+
+    return [model.wv[w] for w in tqdm(words, desc="Featurizing")]

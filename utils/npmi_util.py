@@ -3,6 +3,7 @@ from typing import List
 from math import log
 from collections import defaultdict
 
+import nltk
 import numpy as np
 from tqdm import tqdm
 from nltk.stem import porter
@@ -13,7 +14,8 @@ stemmer = porter.PorterStemmer()
 def stem_text(doc_content_list: List[str]):
     res = []
     for doc in tqdm(doc_content_list, desc="Stemming"):
-        res.append(" ".join([stemmer.stem(x) for x in doc.split()]))
+        words = [w for w in nltk.wordpunct_tokenize(doc) if w.isalpha()]
+        res.append(" ".join([stemmer.stem(x) for x in words]))
     return res
 
 def split_tokenizer(text):
@@ -113,12 +115,17 @@ def get_pmi(doc_content_list: List[str], vocab: List[str]):
     # print("word id map", len(word_id_map.keys()))
     return pmi_word_word
 
-def get_tfidf_score(texts):
-    vectorizer = TfidfVectorizer(tokenizer=split_tokenizer, stop_words="english", min_df=5, max_df=0.5)
+def get_tfidf_score(texts, cache_dir="./tmp"):
+    vectorizer = TfidfVectorizer(tokenizer=split_tokenizer, stop_words="english", min_df=5, max_df=0.7)
     X = vectorizer.fit_transform(texts)
     tf_vocab = vectorizer.vocabulary_
     sorted_tfvocab = {k: v for k, v in sorted(tf_vocab.items(), key=lambda item: item[1])}
     print("Vocabulary size:", len(sorted_tfvocab))
+
+    os.makedirs(cache_dir, exist_ok=True)
+    with open(os.path.join(cache_dir, "vocab.txt"), "w") as f:
+        f.write(" ".join(sorted_tfvocab.keys()))
+
     return X, sorted_tfvocab
 
 if __name__ == "__main__":

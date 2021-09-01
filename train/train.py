@@ -23,7 +23,10 @@ def run(
     test_mask = graph.nodes[target_node].data["test_mask"]
     labels = graph.nodes[target_node].data["label"]
     inputs = graph.ndata["feat"]
-    edge_weight = graph.edata["weight"]
+    if "weight" in graph.edata:
+        edge_weight = {k[1]: v for k, v in graph.edata["weight"].items()}
+    else:
+        edge_weight = {}
 
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.AdamW(model.parameters(), lr=lr)
@@ -52,8 +55,10 @@ def run(
     log(writer, val_scores, 0, type="val")
     print(val_scores)
 
-    for round in range(n_rounds):
-        logging.info(f"START ROUND {round + 1}")
+    init_state = model.state_dict()
+    for rnd in range(n_rounds):
+        logging.info(f"START ROUND {rnd + 1}")
+        model.load_state_dict(init_state)
         pbar = trange(round_epoch, desc="Training")
         for epoch in pbar:
             iteration += 1
@@ -68,7 +73,7 @@ def run(
 
             # validation
             if (epoch + 1) % update_freq == 0:
-                log_iteration = (round + 1) if use_active_learning else iteration
+                log_iteration = (rnd + 1) if use_active_learning else iteration
                 train_scores = predict(
                     model, graph, target_node, inputs, edge_weight, labels, train_mask, threshold=threshold
                 )
@@ -93,12 +98,12 @@ def run(
     test_scores = predict(
         model, graph, target_node, inputs, edge_weight, labels, test_mask, threshold=threshold
     )
-    log(writer, test_scores, iteration=0, type="test")
+    log(writer, test_scores, 0, type="test")
     print(test_scores)
-
     os.makedirs("results", exist_ok=True)
     report = pd.Series(test_scores).sort_index() * 100
     report.to_csv(os.path.join("results", f"{exp_name}.csv"), float_format="%.2f")
+    
     return model
 
 def predict(
@@ -110,13 +115,10 @@ def predict(
     model.eval()
     with torch.no_grad():
         logits = model(graph, inputs, target_node, edge_weight=edge_weight)
-        scores = eval(labels, logits, mask, threshold=threshold)
+        y_true = labels[mask].cpu()
+        y_prob = torch.sigmoid(logits[mask]).cpu()
+        scores = compute_metrics(y_true, y_prob, threshold=threshold)
     return scores
-
-def eval(labels, logits, mask: torch.BoolTensor, threshold: float = 0.5):
-    y_true = labels[mask].cpu()
-    y_prob = torch.sigmoid(logits[mask]).cpu()
-    return compute_metrics(y_true, y_prob, threshold=threshold)
 
 def log(writer: SummaryWriter, scores: Dict, iteration: int = 0, type: str = "train"):
     for k, v in scores.items():

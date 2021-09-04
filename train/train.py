@@ -23,11 +23,11 @@ def run(
     test_mask = graph.nodes[target_node].data["test_mask"]
     labels = graph.nodes[target_node].data["label"]
     inputs = graph.ndata["feat"]
+    # edge_weight = {}
     if "weight" in graph.edata:
         edge_weight = {k[1]: v for k, v in graph.edata["weight"].items()}
     else:
         edge_weight = {}
-
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.AdamW(model.parameters(), lr=lr)
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda it : lr * 0.9 ** (it - 1))

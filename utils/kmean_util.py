@@ -29,9 +29,11 @@ def get_kmean_matrix(corpus=[], num_cluster_list=[2],is_gmm=False):
             cluster_assignment = clustering_model.labels_
             centers = clustering_model.cluster_centers_
         else:
-            gmm = GaussianMixture(3,
+            gmm = GaussianMixture(n_components=num_clusters,
                                   covariance_type='full',
                                   random_state=0).fit(corpus_embeddings)
+            cluster_assignment = gmm.predict(corpus_embeddings)
+            centers = gmm.means_
 
         return cluster_assignment, centers
         # center_idx = [np.where(corpus_embeddings==x) for x in centers]

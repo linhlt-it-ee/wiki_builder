@@ -21,6 +21,7 @@ def prepare_model(
         model = RGCN(
             in_feat, hidden_feat, n_classes, n_layers, 
             rel_names=graph.etypes, aggregate=aggregate,
+            dropout=dropout,
         )
     elif model_name == "rgcn2":
         model = RGCN2(
@@ -33,6 +34,7 @@ def prepare_model(
             in_feat, hidden_feat, n_classes, n_layers, 
             rel_names=graph.etypes, aggregate=aggregate,
             num_heads=num_heads, multihead_aggregate=multihead_aggregate,
+            dropout=dropout,
         )
     elif model_name == "rgat2":
         model = RGAT2(
@@ -45,6 +47,7 @@ def prepare_model(
         model = RSAGE(
             in_feat, hidden_feat, n_classes, n_layers, 
             rel_names=graph.etypes, aggregate=aggregate,
+            dropout=dropout,
         )
     elif model_name == "rsage2":
         model = RSAGE2(

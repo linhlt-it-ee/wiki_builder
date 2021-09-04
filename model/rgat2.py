@@ -17,36 +17,38 @@ class RGAT2(nn.Module):
         super().__init__()
         self.convs = nn.ModuleList()
         self.skips = nn.ModuleList()
+        self.dropout = nn.Dropout(dropout)
 
         last_feat = in_feat
         for i in range(n_layers - 1):
             hidden_head_feat = hidden_feat // num_heads if multihead_aggregate == "concat" else hidden_feat
             self.convs.append(HeteroGraphConv(
-                {rel: GATConv(last_feat, hidden_head_feat, num_heads) for rel in rel_names},
-                aggregate=aggregate
+                {rel: GATConv(last_feat, hidden_head_feat, num_heads, feat_drop=0.5, attn_drop=0.2) for rel in rel_names},
+                aggregate=aggregate,
             ))
             self.skips.append(nn.Linear(last_feat, hidden_feat))
             last_feat = hidden_feat
 
         self.clf = nn.Sequential(
-            nn.Linear(hidden_feat, hidden_feat),
-            nn.ReLU(),
+            # nn.Linear(hidden_feat, hidden_feat),
+            # nn.BatchNorm1d(hidden_feat),
             nn.Dropout(dropout),
+            nn.ReLU(),
             nn.Linear(hidden_feat, n_classes)
         )
         self.multihead_agg_fn = self.get_multihead_aggregate_fn(multihead_aggregate)
 
     def get_multihead_aggregate_fn(self, multihead_aggregate):
         if multihead_aggregate == "concat":
-            fn = lambda att, activation : torch.reshape(activation(att), (att.shape[0], -1))
+            fn = lambda att, activation : torch.flatten(activation(att) if activation is not None else att, start_dim=1)
         elif multihead_aggregate == "mean":
-            fn = lambda att, activation : torch.mean(activation(att), dim=1)
+            fn = lambda att, activation : torch.mean(activation(att) if activation is not None else att, dim=1)
         else:
             raise NotImplementedError
         return fn
 
     def forward(self, graph: DGLGraph, inputs: Dict, target_node: str, edge_weight=None, return_features: bool = False):
-        h = inputs
+        h = {k: self.dropout(v) for k, v in inputs.items()}
         for i, (skip, conv) in enumerate(zip(self.skips, self.convs)):
             h1 = {k: skip(v) for k, v in h.items()}
             h2 = conv(graph, h)

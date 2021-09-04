@@ -2,7 +2,7 @@ import torch
 import os
 from typing import List, Dict, Tuple
 
-import gensim
+from gensim.models import Word2Vec
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
@@ -42,9 +42,9 @@ def get_word_embedding(words: List[str], corpus: List[str], cache_dir="./tmp"):
     os.makedirs(cache_dir, exist_ok=True)
     model_path = os.path.join(cache_dir, "word2vec.model")
     if not os.path.exists(model_path): 
-        model = gensim.models.Word2Vec(sentences=sentences, vector_size=768, window=5, workers=4)
+        model = Word2Vec(sentences=sentences, vector_size=768, window=5, workers=4)
         model.save(model_path)
     else:
-        model.load(model_path)
+        model = Word2Vec.load(model_path)
 
     return [model.wv[w] for w in tqdm(words, desc="Featurizing")]

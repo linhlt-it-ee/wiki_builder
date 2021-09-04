@@ -120,7 +120,7 @@ def get_document(doc_path: str, doc_label_path: str):
     return D, D_feat, D_label, D_mask, doc_content
 
 def get_document_cluster(D: Dict, D_feat: List):
-    cluster_assignment, Cl_feat = utils.get_kmean_matrix(D_feat, num_cluster_list=[72])
+    cluster_assignment, Cl_feat = utils.get_kmean_matrix(D_feat, num_cluster_list=[100])
     DvsCl = (np.array(range(len(D))), cluster_assignment)
     return Cl_feat, DvsCl
 
@@ -213,12 +213,11 @@ def get_document_word(doc_content: List[str], word2word_path: str):
         doc_content = utils.normalize_text(doc_content)
         DvsW_weight, W = utils.get_tfidf_score(doc_content)
         W_feat = utils.get_word_embedding(list(W.keys()), corpus=doc_content)
-        WvsW_weight = utils.get_pmi(doc_content, vocab=list(W.keys()))
+        WvsW_weight = utils.get_pmi(doc_content, vocab=list(W.keys()), window_size=20)
         utils.dump((W, W_feat, DvsW_weight, WvsW_weight), word2word_path)
 
     DvsW = DvsW_weight.nonzero()
     WvsW = WvsW_weight.nonzero()
-    # W_feat = _encode_text(list(W.keys()))
 
     return W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight
 

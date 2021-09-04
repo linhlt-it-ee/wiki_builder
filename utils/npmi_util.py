@@ -9,11 +9,10 @@ from tqdm import tqdm
 from nltk.stem import porter, WordNetLemmatizer
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-stemmer = porter.PorterStemmer()
-lemmatizer = WordNetLemmatizer()
-
 def normalize_text(doc_content_list: List[str]):
     res = []
+    stemmer = porter.PorterStemmer()
+    lemmatizer = WordNetLemmatizer()
     for doc in tqdm(doc_content_list, desc="Normalizing"):
         words = [w for w in nltk.wordpunct_tokenize(doc) if w.isalpha() and len(w) > 2]
         words = [lemmatizer.lemmatize(x, "v") for x in words]
@@ -25,12 +24,12 @@ def normalize_text(doc_content_list: List[str]):
 def split_tokenizer(text):
     return text.split()
 
-def get_pmi(doc_content_list: List[str], vocab: List[str]):
-    vocab = set(vocab)
+def get_pmi(doc_content_list: List[str], vocab: List[str], window_size: int = 20):
+    set_vocab = set(vocab)
     word_freq = defaultdict(lambda : 0)
     for doc_words in doc_content_list:
         for word in doc_words.split():
-            if word in vocab:
+            if word in set_vocab:
                 word_freq[word] += 1
 
     assert len(word_freq) == len(vocab), f"Vocab size mismatch: {len(word_freq)} != {len(vocab)}"
@@ -40,7 +39,7 @@ def get_pmi(doc_content_list: List[str], vocab: List[str]):
         words = doc_words.split()
         appeared = set()
         for word in doc_words.split():
-            if word in appeared or word not in vocab:
+            if word in appeared or word not in set_vocab:
                 continue
             if word in word_doc_list:
                 word_doc_list[word].append(i)
@@ -51,10 +50,9 @@ def get_pmi(doc_content_list: List[str], vocab: List[str]):
         word_doc_freq[word] = len(doc_list)
 
     # word co-occurence with context windows
-    window_size = 20
     windows = []
     for doc_words in tqdm(doc_content_list, desc="Striding"):
-        words = [x for x in doc_words.split() if x in vocab]
+        words = [x for x in doc_words.split() if x in set_vocab]
         length = len(words)
         if length <= window_size:
             windows.append(words)
@@ -74,12 +72,7 @@ def get_pmi(doc_content_list: List[str], vocab: List[str]):
             word_window_freq[window[i]] += 1
             appeared.add(window[i])
 
-    vocab = list(vocab)
-    vocab_size = len(vocab)
-    word_id_map = {}
-    for i in range(vocab_size):
-        word_id_map[vocab[i]] = i
-
+    word_id_map = {x: i for i, x in enumerate(vocab)}
     word_pair_count = defaultdict(lambda : 0)
     for window in tqdm(windows, desc="Counting word pairs within window"):
         for i in range(1, len(window)):
@@ -98,7 +91,7 @@ def get_pmi(doc_content_list: List[str], vocab: List[str]):
 
     # pmi as weights
     num_window = len(windows)
-    pmi_word_word = np.zeros((len(vocab),len(vocab)))
+    pmi_word_word = np.zeros((len(vocab), len(vocab)))
     for key in word_pair_count:
         temp = key.split(',')
         i = int(temp[0])
@@ -111,12 +104,7 @@ def get_pmi(doc_content_list: List[str], vocab: List[str]):
         if pmi <= 0:
             continue
         pmi_word_word[i][j] = pmi
-        # row.append(train_size + i)
-        # col.append(train_size + j)
-        # weight.append(pmi)
-    # print("word pair count",word_pair_count_wth_id)
 
-    # print("word id map", len(word_id_map.keys()))
     return pmi_word_word
 
 def get_tfidf_score(texts, cache_dir="./tmp"):

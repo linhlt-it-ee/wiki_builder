@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dgl import DGLGraph
 from dgl.nn import HeteroGraphConv, GATConv
-
+from .gatconv import WeightedGATConv
 
 class RGAT2(nn.Module):
     def __init__(
@@ -23,7 +23,7 @@ class RGAT2(nn.Module):
         for i in range(n_layers - 1):
             hidden_head_feat = hidden_feat // num_heads if multihead_aggregate == "concat" else hidden_feat
             self.convs.append(HeteroGraphConv(
-                {rel: GATConv(last_feat, hidden_head_feat, num_heads, feat_drop=0.5, attn_drop=0.2) for rel in rel_names},
+                {rel: WeightedGATConv(last_feat, hidden_head_feat, num_heads, feat_drop=0.5, attn_drop=0.2) for rel in rel_names},
                 aggregate=aggregate,
             ))
             self.skips.append(nn.Linear(last_feat, hidden_feat))
@@ -49,9 +49,10 @@ class RGAT2(nn.Module):
 
     def forward(self, graph: DGLGraph, inputs: Dict, target_node: str, edge_weight=None, return_features: bool = False):
         h = {k: self.dropout(v) for k, v in inputs.items()}
+        mod_kwargs = {rel: {"edge_weight": weight} for rel, weight in edge_weight.items()}
         for i, (skip, conv) in enumerate(zip(self.skips, self.convs)):
             h1 = {k: skip(v) for k, v in h.items()}
-            h2 = conv(graph, h)
+            h2 = conv(graph, h, mod_kwargs=mod_kwargs)
             h2 = {k: self.multihead_agg_fn(v, F.relu) for k, v in h2.items()}
             h = {k: h1[k] + h2[k] for k in h.keys()}
         features = h[target_node]

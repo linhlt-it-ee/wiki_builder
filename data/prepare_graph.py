@@ -32,7 +32,7 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None, r
     nodes, edges = defaultdict(lambda : {}), defaultdict(lambda : {})
     
     # document features
-    D, D_feat, D_label, D_mask, doc_content = _cache_to_path(doc_info_path, get_document, doc_path, doc_label_path)
+    D, D_feat, D_label, D_mask, doc_content = utils.cache_to_path(doc_info_path, get_document, doc_path, doc_label_path)
     num_nodes_dict["doc"] = len(D)
     nodes["doc"]["train_mask"] = torch.tensor(D_mask["train_mask"], dtype=torch.bool)
     nodes["doc"]["val_mask"] = torch.tensor(D_mask["val_mask"], dtype=torch.bool)
@@ -45,7 +45,7 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None, r
     
     # getting other nodes
     if "concept" in feature_type:
-        C, C_feat, DvsC, CvsC = _cache_to_path(doc_concept_info_path, get_document_concept, D, concept_path, doc_mention_path, mention_concept_path, par_num)
+        C, C_feat, DvsC, CvsC = utils.cache_to_path(doc_concept_info_path, get_document_concept, D, concept_path, doc_mention_path, mention_concept_path, par_num)
         data_dict.update({
             ("doc", "concept#have", "concept"): DvsC,
             ("concept", "concept#in", "doc"): (DvsC[1], DvsC[0]),
@@ -75,13 +75,16 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None, r
         edges["rev-word#relate"]["weight"] = torch.tensor(np.asarray(rev_WvsW_weight[rev_WvsW]).squeeze(), dtype=torch.float32)
 
     if "cluster" in feature_type:
-        Cl_feat, DvsCl = get_document_cluster(D, D_feat)
+        Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight = get_document_cluster(D, D_feat)
         data_dict.update({
             ("doc", "cluster#form", "cluster"): DvsCl,
+            ("cluster", "cluster#connect", "cluster"): ClvsCl,
             ("cluster", "cluster#in", "doc"): (DvsCl[1], DvsCl[0]),
         })
         num_nodes_dict["cluster"] = len(Cl_feat)
         nodes["cluster"]["feat"] = torch.tensor(Cl_feat, dtype=torch.float32)
+        edges["cluster#form"]["weight"] = torch.tensor(DvsCl_weight, dtype=torch.float32)
+        edges["cluster#connect"]["weight"] = torch.tensor(ClvsCl_weight[ClvsCl], dtype=torch.float32)
 
     # create heterogeneous graph
     graph = dgl.heterograph(data_dict=data_dict, num_nodes_dict=num_nodes_dict)
@@ -115,14 +118,9 @@ def get_document(doc_path: str, doc_label_path: str):
             D_mask["train_mask"][id] = doc["is_train"]
             D_mask["val_mask"][id] = doc["is_dev"]
             D_mask["test_mask"][id] = doc["is_test"]
-    D_feat = _encode_text(D_feat, max_length=512)
+    D_feat = utils.get_bert_features(D_feat, max_length=512)
 
     return D, D_feat, D_label, D_mask, doc_content
-
-def get_document_cluster(D: Dict, D_feat: List):
-    cluster_assignment, Cl_feat = utils.get_kmean_matrix(D_feat, num_cluster_list=[100])
-    DvsCl = (np.array(range(len(D))), cluster_assignment)
-    return Cl_feat, DvsCl
 
 def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, mention_concept_path: str, par_num: List[int], return_graph: bool = False):
     doc_mention = utils.load_json(doc_mention_path)
@@ -192,7 +190,7 @@ def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, ment
         id = C.get(cid, None)
         if id is not None:
             C_feat[id] = label
-    C_feat = _encode_text(C_feat)
+    C_feat = utils.get_bert_features(C_feat, max_length=32)
 
     # flatten
     DvsC = ([], [])
@@ -212,8 +210,11 @@ def get_document_word(doc_content: List[str], word2word_path: str):
     else:
         doc_content = utils.normalize_text(doc_content)
         DvsW_weight, W = utils.get_tfidf_score(doc_content)
-        W_feat = utils.get_word_embedding(list(W.keys()), corpus=doc_content)
-        WvsW_weight = utils.get_pmi(doc_content, vocab=list(W.keys()), window_size=20)
+        sorted_words = [None] * len(W)
+        for k, v in W.items():
+            sorted_words[v] = k
+        W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content)
+        WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
         utils.dump((W, W_feat, DvsW_weight, WvsW_weight), word2word_path)
 
     DvsW = DvsW_weight.nonzero()
@@ -221,14 +222,8 @@ def get_document_word(doc_content: List[str], word2word_path: str):
 
     return W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight
 
-def _encode_text(text: List[str], max_length: int = 64, text_encoder: str = "distilbert-base-uncased"):
-    encoder = utils.get_encoder(pretrained_model_name=text_encoder)
-    return utils.get_bert_features(encoder, text, max_length=max_length)
-
-def _cache_to_path(path: str, fn: Callable, *args, **kwargs):
-    if os.path.exists(path):
-        res = utils.load(path)
-    else:
-        res = fn(*args, **kwargs)
-        utils.dump(res, path)
-    return res
+def get_document_cluster(D: Dict, D_feat: List):
+    Cl_feat, cluster_assignment, DvsCl_weight, ClvsCl_weight = utils.get_kmean_matrix(D_feat, num_cluster_list=[100])
+    DvsCl = (np.array(range(len(D))), cluster_assignment)
+    ClvsCl = np.tril(ClvsCl_weight).nonzero()
+    return Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight

@@ -1,5 +1,5 @@
 from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_samples, silhouette_score
+from sklearn.metrics import pairwise_distances, silhouette_samples, silhouette_score
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
@@ -25,9 +25,10 @@ def get_kmean_matrix(corpus=[], num_cluster_list=[2],is_gmm=False):
         # Perform kmean clustering
         if not is_gmm:
             clustering_model = KMeans(n_clusters=num_clusters)
-            cluster_distance_matrix = clustering_model.fit_transform(corpus_embeddings)
+            cluster_distance = clustering_model.fit_transform(corpus_embeddings).min(axis=1)
             cluster_assignment = clustering_model.labels_
             centers = clustering_model.cluster_centers_
+            cluster2cluster_dist = pairwise_distances(centers)
         else:
             gmm = GaussianMixture(n_components=num_clusters,
                                   covariance_type='full',
@@ -35,7 +36,7 @@ def get_kmean_matrix(corpus=[], num_cluster_list=[2],is_gmm=False):
             cluster_assignment = gmm.predict(corpus_embeddings)
             centers = gmm.means_
 
-        return cluster_assignment, centers
+        return centers, cluster_assignment, cluster_distance, cluster2cluster_dist
         # center_idx = [np.where(corpus_embeddings==x) for x in centers]
         # print(center_idx)
         # print(centers)

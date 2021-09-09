@@ -15,24 +15,31 @@ import utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None, return_graph: bool = False) -> Tuple[DGLGraph, Dict, Dict, int]:
-    doc_path = os.path.join(data_dir, "merge_data.ndjson")
-    doc_label_path = os.path.join(data_dir, "doc_label_encoder.json")
+def prepare_graph(
+        data_dir: str, 
+        feature_type: List[str], 
+        par_num: List[int] = None, 
+        lang: str = "en",
+        return_graph: bool = False
+    ) -> Tuple[DGLGraph, Dict, Dict, int]:
+    doc_path = os.path.join(data_dir, "data_500.ndjson")
+    doc_label_path = os.path.join(data_dir, "doc_label_encoder_500.json")
     cache_dir = os.path.join(data_dir, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
     doc_mention_path = os.path.join(cache_dir, "doc_mention.json")
     mention_concept_path = os.path.join(cache_dir, "concept_links.json")
     concept_path = os.path.join(cache_dir, "concept_labels.json")
     # saved path
-    word2word_path = os.path.join(cache_dir, "word2word.pck")
-    doc_info_path = os.path.join(cache_dir, "doc_info.pck")
-    doc_concept_info_path = os.path.join(cache_dir, "doc_concept_info.pck")
+    word2word_path = os.path.join(cache_dir, "word2word_500.pck")
+    doc_info_path = os.path.join(cache_dir, "doc_info_500.pck")
+    doc_concept_info_path = os.path.join(cache_dir, "doc_concept_info_500.pck")
 
     # loading nodes and edges
     num_nodes_dict, data_dict = {}, {}
     nodes, edges = defaultdict(lambda : {}), defaultdict(lambda : {})
     
     # document features
-    D, D_feat, D_label, D_mask, doc_content = utils.cache_to_path(doc_info_path, get_document, doc_path, doc_label_path)
+    D, D_feat, D_label, D_mask, doc_content = utils.cache_to_path(doc_info_path, get_document, doc_path, doc_label_path, lang=lang)
     num_nodes_dict["doc"] = len(D)
     nodes["doc"]["train_mask"] = torch.tensor(D_mask["train_mask"], dtype=torch.bool)
     nodes["doc"]["val_mask"] = torch.tensor(D_mask["val_mask"], dtype=torch.bool)
@@ -41,38 +48,34 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None, r
     nodes["doc"]["feat"] = torch.tensor(D_feat, dtype=torch.float32)
 
     if return_graph:
-        return get_document_concept(D, concept_path, doc_mention_path, mention_concept_path, par_num, True)
+        return get_document_concept(D, concept_path, doc_mention_path, mention_concept_path, par_num=par_num, lang=lang, return_graph=True)
     
     # getting other nodes
     if "concept" in feature_type:
-        C, C_feat, DvsC, CvsC = utils.cache_to_path(doc_concept_info_path, get_document_concept, D, concept_path, doc_mention_path, mention_concept_path, par_num)
+        C, C_feat, DvsC, CvsC = utils.cache_to_path(doc_concept_info_path, get_document_concept, D, concept_path, doc_mention_path, mention_concept_path, par_num=par_num)
         data_dict.update({
             ("doc", "concept#have", "concept"): DvsC,
             ("concept", "concept#in", "doc"): (DvsC[1], DvsC[0]),
             ("concept", "concept#relate", "concept"): CvsC,
-            ("concept", "rev-concept#relate", "concept"): (CvsC[1], CvsC[0]),
+        #    ("concept", "rev-concept#relate", "concept"): (CvsC[1], CvsC[0]),
         })
         num_nodes_dict["concept"] = len(C)
         nodes["concept"]["feat"] = torch.tensor(C_feat, dtype=torch.float32)
-        
+
     if "word" in feature_type:
-        W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight = get_document_word(doc_content, word2word_path)
+        W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight = get_document_word(doc_content, word2word_path, lang=lang)
         rev_DvsW_weight = DvsW_weight.transpose()
         rev_DvsW = rev_DvsW_weight.nonzero()
-        rev_WvsW_weight = WvsW_weight.transpose()
-        rev_WvsW = rev_WvsW_weight.nonzero()
         data_dict.update({
             ("doc", "word#have", "word"): DvsW,
             ("word", "word#in", "doc"): rev_DvsW,
             ("word", "word#relate", "word"): WvsW,
-            ("word", "rev-word#relate", "word"): rev_WvsW,
         })
         num_nodes_dict["word"] = len(W)
         nodes["word"]["feat"] = torch.tensor(W_feat, dtype=torch.float32)
         edges["word#have"]["weight"] = torch.tensor(np.asarray(DvsW_weight[DvsW]).squeeze(), dtype=torch.float32)
         edges["word#in"]["weight"] = torch.tensor(np.asarray(rev_DvsW_weight[rev_DvsW]).squeeze(), dtype=torch.float32)
         edges["word#relate"]["weight"] = torch.tensor(np.asarray(WvsW_weight[WvsW]).squeeze(), dtype=torch.float32)
-        edges["rev-word#relate"]["weight"] = torch.tensor(np.asarray(rev_WvsW_weight[rev_WvsW]).squeeze(), dtype=torch.float32)
 
     if "cluster" in feature_type:
         Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight = get_document_cluster(D, D_feat)
@@ -96,10 +99,9 @@ def prepare_graph(data_dir: str, feature_type: str, par_num: List[int] = None, r
         for dtype in edges[etype]:
             graph.edges[etype].data[dtype] = edges[etype][dtype]
     logging.info(graph)
-
     return graph.to(device), D, num_classes
 
-def get_document(doc_path: str, doc_label_path: str):
+def get_document(doc_path: str, doc_label_path: str, lang: str = "en"):
     doc_labels = utils.load_json(doc_label_path)
     docs = [doc for doc in utils.load_ndjson(doc_path)]
     D = {did: id for id, did in enumerate(sorted(doc["id"] for doc in docs))}
@@ -118,15 +120,17 @@ def get_document(doc_path: str, doc_label_path: str):
             D_mask["train_mask"][id] = doc["is_train"]
             D_mask["val_mask"][id] = doc["is_dev"]
             D_mask["test_mask"][id] = doc["is_test"]
-    D_feat = utils.get_bert_features(D_feat, max_length=512)
+    max_length = 512 if lang == "en" else 64
+    D_feat = utils.get_bert_features(D_feat, max_length=max_length, lang=lang)
 
     return D, D_feat, D_label, D_mask, doc_content
 
 def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, mention_concept_path: str, par_num: List[int], return_graph: bool = False):
     doc_mention = utils.load_json(doc_mention_path)
     valid_mentions = set()
-    for x in doc_mention.values():
-        valid_mentions.update(x)
+    for did, x in doc_mention.items():
+        if did in D:
+            valid_mentions.update(x)
 
     # create concept graph
     mention_concept = utils.load_json(mention_concept_path)
@@ -204,12 +208,12 @@ def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, ment
 
     return C, C_feat, DvsC, CvsC
 
-def get_document_word(doc_content: List[str], word2word_path: str):
+def get_document_word(doc_content: List[str], word2word_path: str, lang: str = "en"):
     if os.path.exists(word2word_path):
         W, W_feat, DvsW_weight, WvsW_weight = utils.load(word2word_path)
     else:
-        doc_content = utils.normalize_text(doc_content)
-        DvsW_weight, W = utils.get_tfidf_score(doc_content)
+        doc_content = utils.normalize_text(doc_content, lang=lang)
+        DvsW_weight, W = utils.get_tfidf_score(doc_content, lang=lang)
         sorted_words = [None] * len(W)
         for k, v in W.items():
             sorted_words[v] = k
@@ -225,5 +229,5 @@ def get_document_word(doc_content: List[str], word2word_path: str):
 def get_document_cluster(D: Dict, D_feat: List):
     Cl_feat, cluster_assignment, DvsCl_weight, ClvsCl_weight = utils.get_kmean_matrix(D_feat, num_cluster_list=[100])
     DvsCl = (np.array(range(len(D))), cluster_assignment)
-    ClvsCl = np.tril(ClvsCl_weight).nonzero()
+    ClvsCl = ClvsCl_weight.nonzero()
     return Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight

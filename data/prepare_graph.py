@@ -18,10 +18,11 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 def prepare_graph(
         data_dir: str, 
         feature_type: List[str], 
-        par_num: List[int] = None, 
         lang: str = "en",
+        par_num: List[int] = None, 
+        n_clusters: int = None,
         return_graph: bool = False
-    ) -> Tuple[DGLGraph, Dict, Dict, int]:
+    ) -> Tuple[DGLGraph, Dict[str, int], int]:
     doc_path = os.path.join(data_dir, "data_500.ndjson")
     doc_label_path = os.path.join(data_dir, "doc_label_encoder_500.json")
     cache_dir = os.path.join(data_dir, "cache")
@@ -40,12 +41,12 @@ def prepare_graph(
     
     # document features
     D, D_feat, D_label, D_mask, doc_content = utils.cache_to_path(doc_info_path, get_document, doc_path, doc_label_path, lang=lang)
-    num_nodes_dict["doc"] = len(D)
     nodes["doc"]["train_mask"] = torch.tensor(D_mask["train_mask"], dtype=torch.bool)
     nodes["doc"]["val_mask"] = torch.tensor(D_mask["val_mask"], dtype=torch.bool)
     nodes["doc"]["test_mask"] = torch.tensor(D_mask["test_mask"], dtype=torch.bool)
     nodes["doc"]["label"] = torch.tensor(D_label, dtype=torch.long)
     nodes["doc"]["feat"] = torch.tensor(D_feat, dtype=torch.float32)
+    num_nodes_dict["doc"] = len(D)
 
     if return_graph:
         return get_document_concept(D, concept_path, doc_mention_path, mention_concept_path, par_num=par_num, lang=lang, return_graph=True)
@@ -57,38 +58,42 @@ def prepare_graph(
             ("doc", "concept#have", "concept"): DvsC,
             ("concept", "concept#in", "doc"): (DvsC[1], DvsC[0]),
             ("concept", "concept#relate", "concept"): CvsC,
-        #    ("concept", "rev-concept#relate", "concept"): (CvsC[1], CvsC[0]),
+            ("concept", "rev-concept#relate", "concept"): (CvsC[1], CvsC[0]),
         })
         num_nodes_dict["concept"] = len(C)
         nodes["concept"]["feat"] = torch.tensor(C_feat, dtype=torch.float32)
 
     if "word" in feature_type:
         W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight = get_document_word(doc_content, word2word_path, lang=lang)
-        rev_DvsW_weight = DvsW_weight.transpose()
-        rev_DvsW = rev_DvsW_weight.nonzero()
         data_dict.update({
-            ("doc", "word#have", "word"): DvsW,
-            ("word", "word#in", "doc"): rev_DvsW,
             ("word", "word#relate", "word"): WvsW,
+            ("doc", "word#have", "word"): DvsW,
+            ("word", "word#in", "doc"): (DvsW[1], DvsW[0]),
         })
         num_nodes_dict["word"] = len(W)
         nodes["word"]["feat"] = torch.tensor(W_feat, dtype=torch.float32)
-        edges["word#have"]["weight"] = torch.tensor(np.asarray(DvsW_weight[DvsW]).squeeze(), dtype=torch.float32)
-        edges["word#in"]["weight"] = torch.tensor(np.asarray(rev_DvsW_weight[rev_DvsW]).squeeze(), dtype=torch.float32)
         edges["word#relate"]["weight"] = torch.tensor(np.asarray(WvsW_weight[WvsW]).squeeze(), dtype=torch.float32)
+        edges["word#have"]["weight"] = edges["word#in"]["weight"] = torch.tensor(np.asarray(DvsW_weight[DvsW]).squeeze(), dtype=torch.float32)
 
     if "cluster" in feature_type:
-        Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight = get_document_cluster(D, D_feat)
+        Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight = get_document_cluster(D, D_feat, n_clusters=n_clusters)
         data_dict.update({
-            ("doc", "cluster#form", "cluster"): DvsCl,
             ("cluster", "cluster#connect", "cluster"): ClvsCl,
+            ("doc", "cluster#form", "cluster"): DvsCl,
             ("cluster", "cluster#in", "doc"): (DvsCl[1], DvsCl[0]),
         })
         num_nodes_dict["cluster"] = len(Cl_feat)
         nodes["cluster"]["feat"] = torch.tensor(Cl_feat, dtype=torch.float32)
-        edges["cluster#form"]["weight"] = torch.tensor(DvsCl_weight, dtype=torch.float32)
         edges["cluster#connect"]["weight"] = torch.tensor(ClvsCl_weight[ClvsCl], dtype=torch.float32)
+        edges["cluster#form"]["weight"] = edges["cluster#in"]["weight"] = torch.tensor(DvsCl_weight, dtype=torch.float32)
 
+    # add self-loop
+    """
+    for ntype, num_nodes in num_nodes_dict.items():
+        data_dict.update({
+            (ntype, f"{ntype}#self-loop", ntype): (range(num_nodes), range(num_nodes))
+        })
+    """
     # create heterogeneous graph
     graph = dgl.heterograph(data_dict=data_dict, num_nodes_dict=num_nodes_dict)
     num_classes = len(utils.load_json(doc_label_path))
@@ -100,7 +105,7 @@ def prepare_graph(
             graph.edges[etype].data[dtype] = edges[etype][dtype]
     logging.info(graph)
     return graph.to(device), D, num_classes
-
+ 
 def get_document(doc_path: str, doc_label_path: str, lang: str = "en"):
     doc_labels = utils.load_json(doc_label_path)
     docs = [doc for doc in utils.load_ndjson(doc_path)]
@@ -110,7 +115,6 @@ def get_document(doc_path: str, doc_label_path: str, lang: str = "en"):
     D_label = [None] * len(D)
     D_feat = [None] * len(D)
     D_mask = {data_type: [None] * len(D) for data_type in ("train_mask", "val_mask", "test_mask")}
-
     for doc in tqdm(docs, desc="Encoding documents"):
         id = D.get(doc["id"], None)
         if id is not None:
@@ -120,8 +124,7 @@ def get_document(doc_path: str, doc_label_path: str, lang: str = "en"):
             D_mask["train_mask"][id] = doc["is_train"]
             D_mask["val_mask"][id] = doc["is_dev"]
             D_mask["test_mask"][id] = doc["is_test"]
-    max_length = 512 if lang == "en" else 64
-    D_feat = utils.get_bert_features(D_feat, max_length=max_length, lang=lang)
+    D_feat = utils.get_bert_features(D_feat, max_length=512, lang=lang)
 
     return D, D_feat, D_label, D_mask, doc_content
 
@@ -226,8 +229,8 @@ def get_document_word(doc_content: List[str], word2word_path: str, lang: str = "
 
     return W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight
 
-def get_document_cluster(D: Dict, D_feat: List):
-    Cl_feat, cluster_assignment, DvsCl_weight, ClvsCl_weight = utils.get_kmean_matrix(D_feat, num_cluster_list=[100])
+def get_document_cluster(D: Dict, D_feat: List, n_clusters: int = 100):
+    Cl_feat, cluster_assignment, DvsCl_weight, ClvsCl_weight = utils.get_kmean_matrix(D_feat, num_cluster_list=[n_clusters])
     DvsCl = (np.array(range(len(D))), cluster_assignment)
     ClvsCl = ClvsCl_weight.nonzero()
     return Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight

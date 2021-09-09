@@ -16,9 +16,8 @@ def make_run_args():
     parser.add_argument("--lang", type=str, default="en", help="Patent language")
     # graph args
     parser.add_argument("--data_dir", type=str, help="Data directory")
-    parser.add_argument("--par1_num", type=int, default=-1, help="Number of 1-hop parents for each node")
-    parser.add_argument("--par2_num", type=int, default=-1, help="Number of 2-hop parents for each node")
-    parser.add_argument("--par3_num", type=int, default=-1, help="Number of 3-hop parents for each node")
+    parser.add_argument("--par_num", type=str, default="-1,-1,-1", help="Number of k-hop parents for each node")
+    parser.add_argument("--n_clusters", type=int, help="Number of `cluster` nodes")
     parser.add_argument("--feature_type", type=str, default="concept,word,cluster", help="Other types of nodes")
     parser.add_argument("--aggregate", type=str, default="sum", help="Aggregation function on neighboring nodes")
     parser.add_argument("--multihead_aggregate", type=str, default="concat", help="Aggregate function on attention heads")

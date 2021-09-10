@@ -21,7 +21,6 @@ def prepare_graph(
         lang: str = "en",
         par_num: List[int] = None, 
         n_clusters: int = None,
-        return_graph: bool = False
     ) -> Tuple[DGLGraph, Dict[str, int], int]:
     doc_path = os.path.join(data_dir, "data_500.ndjson")
     doc_label_path = os.path.join(data_dir, "doc_label_encoder_500.json")
@@ -39,7 +38,6 @@ def prepare_graph(
     num_nodes_dict, data_dict = {}, {}
     nodes, edges = defaultdict(lambda : {}), defaultdict(lambda : {})
     
-    # document features
     D, D_feat, D_label, D_mask, doc_content = utils.cache_to_path(doc_info_path, get_document, doc_path, doc_label_path, lang=lang)
     nodes["doc"]["train_mask"] = torch.tensor(D_mask["train_mask"], dtype=torch.bool)
     nodes["doc"]["val_mask"] = torch.tensor(D_mask["val_mask"], dtype=torch.bool)
@@ -47,21 +45,6 @@ def prepare_graph(
     nodes["doc"]["label"] = torch.tensor(D_label, dtype=torch.long)
     nodes["doc"]["feat"] = torch.tensor(D_feat, dtype=torch.float32)
     num_nodes_dict["doc"] = len(D)
-
-    if return_graph:
-        return get_document_concept(D, concept_path, doc_mention_path, mention_concept_path, par_num=par_num, lang=lang, return_graph=True)
-    
-    # getting other nodes
-    if "concept" in feature_type:
-        C, C_feat, DvsC, CvsC = utils.cache_to_path(doc_concept_info_path, get_document_concept, D, concept_path, doc_mention_path, mention_concept_path, par_num=par_num)
-        data_dict.update({
-            ("doc", "concept#have", "concept"): DvsC,
-            ("concept", "concept#in", "doc"): (DvsC[1], DvsC[0]),
-            ("concept", "concept#relate", "concept"): CvsC,
-            ("concept", "rev-concept#relate", "concept"): (CvsC[1], CvsC[0]),
-        })
-        num_nodes_dict["concept"] = len(C)
-        nodes["concept"]["feat"] = torch.tensor(C_feat, dtype=torch.float32)
 
     if "word" in feature_type:
         W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight = get_document_word(doc_content, word2word_path, lang=lang)
@@ -87,13 +70,23 @@ def prepare_graph(
         edges["cluster#connect"]["weight"] = torch.tensor(ClvsCl_weight[ClvsCl], dtype=torch.float32)
         edges["cluster#form"]["weight"] = edges["cluster#in"]["weight"] = torch.tensor(DvsCl_weight, dtype=torch.float32)
 
+    if "concept" in feature_type:
+        C, C_feat, DvsC, CvsC = utils.cache_to_path(doc_concept_info_path, get_document_concept, D, concept_path, doc_mention_path, mention_concept_path, par_num=par_num)
+        data_dict.update({
+            ("doc", "concept#have", "concept"): DvsC,
+            ("concept", "concept#in", "doc"): (DvsC[1], DvsC[0]),
+            ("concept", "concept#relate", "concept"): CvsC,
+            ("concept", "rev-concept#relate", "concept"): (CvsC[1], CvsC[0]),
+        })
+        num_nodes_dict["concept"] = len(C)
+        nodes["concept"]["feat"] = torch.tensor(C_feat, dtype=torch.float32)
+
     # add self-loop
-    """
     for ntype, num_nodes in num_nodes_dict.items():
         data_dict.update({
             (ntype, f"{ntype}#self-loop", ntype): (range(num_nodes), range(num_nodes))
         })
-    """
+
     # create heterogeneous graph
     graph = dgl.heterograph(data_dict=data_dict, num_nodes_dict=num_nodes_dict)
     num_classes = len(utils.load_json(doc_label_path))
@@ -128,45 +121,65 @@ def get_document(doc_path: str, doc_label_path: str, lang: str = "en"):
 
     return D, D_feat, D_label, D_mask, doc_content
 
-def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, mention_concept_path: str, par_num: List[int], return_graph: bool = False):
+def get_document_word(doc_content: List[str], word2word_path: str, lang: str = "en"):
+    if os.path.exists(word2word_path):
+        W, W_feat, DvsW_weight, WvsW_weight = utils.load(word2word_path)
+    else:
+        doc_content = utils.normalize_text(doc_content, lang=lang)
+        DvsW_weight, W = utils.get_tfidf_score(doc_content, lang=lang)
+        sorted_words = [None] * len(W)
+        for k, v in W.items():
+            sorted_words[v] = k
+        W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content)
+        WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
+        utils.dump((W, W_feat, DvsW_weight, WvsW_weight), word2word_path)
+
+    DvsW = DvsW_weight.nonzero()
+    WvsW = WvsW_weight.nonzero()
+
+    return W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight
+
+def get_document_cluster(D: Dict[str, int], D_feat: List, n_clusters: int = 100):
+    Cl_feat, cluster_assignment, DvsCl_weight, ClvsCl_weight = utils.get_kmean_matrix(D_feat, num_cluster_list=[n_clusters])
+    DvsCl = (np.array(range(len(D))), cluster_assignment)
+    ClvsCl = ClvsCl_weight.nonzero()
+    return Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight
+
+def get_document_concept(D: Dict[str, int], concept_path: str, doc_mention_path: str, mention_concept_path: str, par_num: List[int]):
     doc_mention = utils.load_json(doc_mention_path)
-    valid_mentions = set()
+    mention_labels = set()
     for did, x in doc_mention.items():
         if did in D:
-            valid_mentions.update(x)
+            mention_labels.update(x)
 
     # create concept graph
     mention_concept = utils.load_json(mention_concept_path)
+    mentions = set() 
     CvsC_graph = nx.DiGraph()
-    for x in mention_concept.values():
-        if x["label"] in valid_mentions:
+    for mid, x in mention_concept.items():
+        if x["label"] in mention_labels:
+            mentions.add(id)
             for parent in x["parents"]:
                 if parent["level"] == 1:
                     continue
                 path = parent["path"].split(" >> ")
                 nx.add_path(CvsC_graph, path)
 
-    C = set()       # not include name mentions
-    C_all = set()   # include name mentions
-    C_par = {}
-    children = set(x for x in mention_concept.keys() if x in CvsC_graph.nodes)
+    C = set()   # include name mentions
+    children = mentions
+    C.update(children)
     for level, parlevel_num in enumerate(par_num, start=1):
         cnt = defaultdict(lambda : 0)
-        C_all.update(children)
         for child in children:
             for par in CvsC_graph.successors(child):
-                if par not in C_all:    # disable nodes with different levels
+                if par not in C:    # disable nodes in previous levels
                     cnt[par] += 1
         # discard parents with less than 2 children
-        children = [k for k, v in sorted(cnt.items(), key=lambda x : (x[1], x[0]), reverse=True) if v >= 2]
-        children = children[:parlevel_num]
-        logging.info(f"Extracting {parlevel_num} parents level {level} with most children, got {len(children)}")
+        children = [k for k, v in sorted(cnt.items(), key=lambda x : (x[1], x[0]), reverse=True) if v >= 2][: parlevel_num]
         C.update(children)
-        C_par[level] = children
-    C_all.update(children)
-    if return_graph:
-        return nx.DiGraph(CvsC_graph.subgraph(C_all)), C_par
+        logging.info(f"Extracting {parlevel_num} parents level {level} with most children, got {len(children)}")
 
+    C = C.difference(mentions)
     CvsC_graph = nx.DiGraph(CvsC_graph.subgraph(C))
     logging.info(f"CvsC graph: {CvsC_graph}")
     logging.info(f"C size: {len(C)}")
@@ -210,27 +223,3 @@ def get_document_concept(D: Dict, concept_path: str, doc_mention_path: str, ment
         CvsC[1].append(C[v])
 
     return C, C_feat, DvsC, CvsC
-
-def get_document_word(doc_content: List[str], word2word_path: str, lang: str = "en"):
-    if os.path.exists(word2word_path):
-        W, W_feat, DvsW_weight, WvsW_weight = utils.load(word2word_path)
-    else:
-        doc_content = utils.normalize_text(doc_content, lang=lang)
-        DvsW_weight, W = utils.get_tfidf_score(doc_content, lang=lang)
-        sorted_words = [None] * len(W)
-        for k, v in W.items():
-            sorted_words[v] = k
-        W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content)
-        WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
-        utils.dump((W, W_feat, DvsW_weight, WvsW_weight), word2word_path)
-
-    DvsW = DvsW_weight.nonzero()
-    WvsW = WvsW_weight.nonzero()
-
-    return W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight
-
-def get_document_cluster(D: Dict, D_feat: List, n_clusters: int = 100):
-    Cl_feat, cluster_assignment, DvsCl_weight, ClvsCl_weight = utils.get_kmean_matrix(D_feat, num_cluster_list=[n_clusters])
-    DvsCl = (np.array(range(len(D))), cluster_assignment)
-    ClvsCl = ClvsCl_weight.nonzero()
-    return Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight

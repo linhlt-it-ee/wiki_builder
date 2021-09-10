@@ -26,12 +26,21 @@ if __name__ == "__main__":
     target_node = "doc"
     graph, doc_ids, n_classes = prepare_graph(
         args.data_dir, 
-        args.feature_type.split(","), 
-        args.lang,
+        feature_type=args.feature_type.split(","), 
+        lang=args.lang,
         par_num=list(map(int, args.par_num.split(","))), 
         n_clusters=args.n_clusters,
     )
-    model = prepare_model(args.model_name, graph, n_classes, args.hidden_feat, args.n_layers, args.aggregate, args.num_heads, args.multihead_aggregate, args.dropout)
-    writer = SummaryWriter()
-    model = run(model, graph, target_node, args.lr, args.epochs, args.threshold, args.strategy_name, writer, exp_name=args.exp_name)
+    model = prepare_model(
+        args.model_name, 
+        graph, 
+        n_classes, 
+        hidden_feat=args.hidden_feat, 
+        n_layers=args.n_layers, 
+        aggregate=args.aggregate, 
+        num_heads=args.num_heads, 
+        multihead_aggregate=args.multihead_aggregate, 
+        dropout=args.dropout
+    )
+    model = run(model, graph, target_node, args.lr, args.epochs, args.threshold, args.strategy_name, writer=SummaryWriter(), exp_name=args.exp_name)
     logger.finish()

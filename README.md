@@ -1,6 +1,6 @@
+# How to use
 
-
-## Preprocess Data
+## 1. Preprocess Data
 
 The data is organized in a single `.ndjson` file. Each line represents a `json` patent as follows:
 

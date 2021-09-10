@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dgl import DGLGraph
 from dgl.nn import HeteroGraphConv, GATConv
-
+# from .gatconv import WeightedGATConv
 
 class RGAT(nn.Module):
     def __init__(

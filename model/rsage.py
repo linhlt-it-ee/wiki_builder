@@ -41,6 +41,6 @@ class RSAGE(nn.Module):
             h = conv(graph, h, mod_kwargs=mod_kwargs)
             h = {k: F.relu(v) for k, v in h.items()}
         features = h[target_node]
-        h = self.clf(graph, h, mod_kwargs=mod_kwargs)
+        h = self.clf(graph, h)
         logits = h[target_node]
         return (features, logits) if return_features else logits

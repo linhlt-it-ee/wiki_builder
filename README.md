@@ -1,61 +1,84 @@
-# wiki_builder
-A - Knowledge Graph Crawling from Wiki 
-\
-Step 0: Find name mention in description or short name of an entity in the wikidata
-Ex: trifluoromethyl Q2302144
-
-\
-Method 1:
-1.	Step 1: Find direct parent of each entity for upper level 1
-2.	Step 2: Find parent intersection from all parents of each entity to find a root node
-"""SELECT ?item ?itemLabel WHERE { wd:"""+entity_id1+""" wdt:P279+ ?item . ?item  wdt:P279+ wd:"""+entity_id2+""" . SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }}"""
-2.1.	 Find a path between 2 entities. For example: there is a path between entity1:semiconductor device and entity2: electric device: semiconductor device>>electronic component>>chemical element>>electronic device (it could takes time or make time out request when an entity have too many parents)
-2.2.	 Check whether entity_id1 is direct parent of entity_id2
-"""SELECT ?item ?itemLabel WHERE{wd:"""+ entity_id+""" wdt:"""+propertyID + """?item . 
-SERVICE wikibase:label { bd:serviceParam wikibase:language "en" }}"""
-     Disadvantage: Timeout request error or malfunction request when we have a few threads to crawl data.
-   This method could not be implemented any more because or timeout request or too long to wait (at least 4 days) 
- 
- \
-Method 2:
-1.	Step 1: Find parent in upper 3 level and the link between all nodes in only 1 step instead of find direct parent for 3 times which leading to timeout request or malfunction request
-""PREFIX gas: <http://www.bigdata.com/rdf/gas#>
-
-SELECT ?item ?itemLabel ?linkTo
-WHERE
-{
-  SERVICE gas:service {
-    gas:program gas:gasClass "com.bigdata.rdf.graph.analytics.SSSP" ;
-                gas:in wd:"""+entity_id+""";
-                gas:traversalDirection "Forward" ;
-                gas:out ?item ;
-                gas:out1 ?depth ;
-                gas:maxIterations """+str(iteration)+""" ;
-                gas:linkType wdt:P279 .
-  }
-  OPTIONAL { ?item wdt:P279 ?linkTo }
-
-  SERVICE wikibase:label {bd:serviceParam wikibase:language "en" }
-}"""
-  
-
-2.	Update label, short_name, description for all upper level parents
-""" SELECT
-  ?id?label?desc
-  (GROUP_CONCAT(DISTINCT(?aka); separator="|") AS ?akas)
-WHERE{
-  VALUES ?id { wd:"""+entity_id+""" }
-  OPTIONAL{ ?id rdfs:label ?label. FILTER(LANG(?label)="en")}
-  OPTIONAL{ ?id skos:altLabel ?aka . FILTER(LANG(?aka) = "en")}
-  OPTIONAL{ ?id schema:description ?desc . FILTER(LANG(?desc) = "en")}
-}
-GROUP BY ?id?label?desc"""
-3.	Make tree builder from all links between entities with node level 0 = root 
-Advantage: Fast and prevent “timeout request”
-B – Knowledge Graph Level Labelling
-Problem 1: How to decide level of an entity
- 
- 
-Current solution: Choose a lower level = 5 if entity_1 is a child of both entity_2 (level3) and entity_3 (level4)
 
 
+## Preprocess Data
+
+The data is organized in a single `.ndjson` file. Each line represents a `json` patent as follows:
+
+| Attribute | Meaning | Datatype |
+| - | - | - |
+| id | Patent ID | str |
+| desc | Patent Description | str |
+| content | Patent Claims | str |
+| labels | Patent Classification Codes | List[str] |
+| is_train | Whether it is included for training | bool |
+| is_val | Whether it is included for validation | bool |
+| is_test | Whether it is included for testing | bool |
+
+Sample processing notebook with English and Japanese patents: [US patents](./data/preprocess_en_patents.ipynb) | [JA patents](./preprocess_jp_patents.ipynb)
+
+
+## 2. Train
+
+The training pipeline includes: [prepare graph](#feature-preparation), [prepare model](#model), and [training](#train). To start training, modify `run.sh` with your data directory (as well as other settings in `args.py`) and use the following command:
+
+```bash
+bash run.sh
+```
+
+**Note**: We use WnB to monitor the experiments. You might need to either install and change the project name to your account in `main.py` or skip them in the code.
+
+#### Graph
+
+We use DGL to create a heterogeneous graph which can contain nodes and edges of multiple types.
+
+| Node | Embedding Type |
+| -- | -- |
+| doc | BERT embedding (based on raw document's `desc`) |
+| word | Word2Vec (extracted from raw document's `content`) |
+| cluster | K-Means (based on doc's embedding) |
+| concept | BERT embedding (based on concept's label) |
+
+| Edge | Weight | Bi-directional |
+| -- | -- | -- |
+| (word, word, word#relate) | PMI | No |
+| (doc, word, word#in) | TF-IDF | Yes |
+| (cluster, cluster, cluster#relate) | Euclidean distance | No |
+| (doc, cluster, cluster#form) | Euclidean distance (K-Means) | Yes |
+| (concept, concept, concept#child) | - | No |
+| (doc, concept, concept#have) | - | Yes |
+
+**Note**:
+- To represent bi-directional edges, we add two types of directed edges with opposite direction.
+- `concept` nodes should be crawled from Wikidata prior to creating graph.
+- Temporary data is cached in the subfolder `cache/` of the data directory. Users might need to clear the cached files to test with different data.
+
+#### Model
+
+Available architecture includes: R-GCN, R-GCN+Dense (RGCN2), R-SAGE, R-SAGE+Dense (RSAGE2), R-GAT, and R-GAT+Dense (RGAT2).
+
+#### Train
+
+We provide a training procedure with and without Active Learning strategies (i.e., Least Confidence, Entropy Sampling, Margin Sampling, K-centers Greedy Sampling). Users can turn on this mode by providing appropriate `strategy_name` in `run.sh`.
+
+The testing results will be available as csv file in `./results/` once the training is done.
+
+## Code Structure
+```
+.
+├── args.py
+├── data
+│   └── prepare_graph.py
+├── data_crawl
+├── main.py
+├── map_concepts.py
+├── model
+│   ├── prepare_model.py
+│   └── ...
+├── retrieve_concepts.py
+├── run.sh
+├── train
+│   ├── metrics.py
+│   ├── strategy.py
+│   └── train.py
+└── utils
+```

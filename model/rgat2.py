@@ -31,7 +31,7 @@ class RGAT2(nn.Module):
 
         self.clf = nn.Sequential(
             # nn.Linear(hidden_feat, hidden_feat),
-            # nn.BatchNorm1d(hidden_feat),
+            nn.BatchNorm1d(hidden_feat),
             nn.Dropout(dropout),
             nn.ReLU(),
             nn.Linear(hidden_feat, n_classes)

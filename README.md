@@ -14,12 +14,12 @@ The data is organized in a single `.ndjson` file. Each line represents a `json` 
 | is_val | Whether it is included for validation | bool |
 | is_test | Whether it is included for testing | bool |
 
-Sample processing notebook with English and Japanese patents: [US patents](./data/preprocess_en_patents.ipynb) | [JA patents](./preprocess_jp_patents.ipynb)
+Sample processing notebook with English and Japanese patents: [US patents](./data/preprocess_us_patents.ipynb) | [JA patents](./data/preprocess_jp_patents.ipynb)
 
 
 ## 2. Train
 
-The training pipeline includes: [prepare graph](#feature-preparation), [prepare model](#model), and [training](#train). To start training, modify `run.sh` with your data directory (as well as other settings in `args.py`) and use the following command:
+The training pipeline includes: [prepare graph](#graph), [prepare model](#model), and [training](#train). To start training, modify `run.sh` with your data directory (as well as other settings in `args.py`) and use the following command:
 
 ```bash
 bash run.sh

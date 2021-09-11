@@ -11,14 +11,9 @@ from tqdm import tqdm
 from nltk.stem import porter, WordNetLemmatizer
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 
+from . import file_utils
 
 def normalize_text(doc_content_list: List[str], lang: str = "en", cache_dir="./tmp"):
-    norm_text_path = os.path.join(cache_dir, "norm_text.pck")
-    os.makedirs(cache_dir, exist_ok=True)
-    if os.path.exists(norm_text_path):
-        with open(norm_text_path, "rb") as f:
-            return pickle.load(f)
-
     res = []
     stemmer = porter.PorterStemmer()
     lemmatizer = WordNetLemmatizer()
@@ -35,9 +30,8 @@ def normalize_text(doc_content_list: List[str], lang: str = "en", cache_dir="./t
         else:
             raise NotImplementedError
         res.append(" ".join(words).lower())
+    file_utils.dump(res, os.path.join(cache_dir, f"normalized_text_{lang}.pck"))
 
-    with open(norm_text_path, "wb") as f:
-        pickle.dump(res, f)
     return res
 
 def get_tfidf_score(texts, lang: str = "en", cache_dir="./tmp"):
@@ -45,10 +39,8 @@ def get_tfidf_score(texts, lang: str = "en", cache_dir="./tmp"):
     vectorizer = TfidfVectorizer(tokenizer=lambda x : x.split(), stop_words=stop_words, min_df=10, max_df=0.7)
     X = vectorizer.fit_transform(texts)
     tf_vocab = vectorizer.vocabulary_
-
     print("Vocabulary size:", len(tf_vocab))
-    os.makedirs(cache_dir, exist_ok=True)
-    with open(os.path.join(cache_dir, "vocab.txt"), "w") as f:
+    with open(os.path.join(cache_dir, f"vocab_{lang}.txt"), "w") as f:
         f.write(" ".join(sorted(tf_vocab.keys())))
 
     return X, tf_vocab

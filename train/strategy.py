@@ -1,6 +1,5 @@
 import torch
 import numpy as np
-from math import ceil
 from sklearn.metrics import pairwise_distances
 
 class Strategy:
@@ -8,7 +7,7 @@ class Strategy:
         self.unlabel_mask = unlabel_mask
         self.n_samples = len(self.unlabel_mask)
         self.train_mask = torch.zeros(self.n_samples, dtype=torch.bool)
-        self.n_samples_per_round = ceil(sum(self.unlabel_mask).item() / n_rounds)
+        self.n_samples_per_round = sum(self.unlabel_mask).item() // n_rounds
 
     def update(self, select_idx):
         self.train_mask[select_idx] = True

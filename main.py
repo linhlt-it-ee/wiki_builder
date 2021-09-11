@@ -25,7 +25,8 @@ if __name__ == "__main__":
 
     target_node = "doc"
     graph, doc_ids, n_classes = prepare_graph(
-        args.data_dir, 
+        args.data_path,
+        args.cache_dir, 
         feature_type=args.feature_type.split(","), 
         lang=args.lang,
         par_num=list(map(int, args.par_num.split(","))), 

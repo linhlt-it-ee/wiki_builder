@@ -51,7 +51,6 @@ def get_bert_features(text: List[str], max_length: int = 64, lang: str = "en"):
 
 def get_word_embedding(words: List[str], corpus: List[str], cache_dir="./tmp"):
     sentences = [sent.split() for sent in corpus]
-    os.makedirs(cache_dir, exist_ok=True)
     model_path = os.path.join(cache_dir, "word2vec.model")
     if not os.path.exists(model_path): 
         # same dimension as bert embedding

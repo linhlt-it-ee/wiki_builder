@@ -16,19 +16,18 @@ import utils
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 def prepare_graph(
-        data_dir: str, 
+        doc_path: str,
+        cache_dir: str, 
         feature_type: List[str], 
         lang: str = "en",
         par_num: List[int] = None, 
         n_clusters: int = None,
     ) -> Tuple[DGLGraph, Dict[str, int], int]:
-    doc_path = os.path.join(data_dir, "data_500.ndjson")
-    cache_dir = os.path.join(data_dir, "cache")
+    # cached files
     os.makedirs(cache_dir, exist_ok=True)
-    # saved path
-    word2word_path = os.path.join(cache_dir, "word2word_500.pck")
-    doc_info_path = os.path.join(cache_dir, "doc_info_500.pck")
-    doc_concept_info_path = os.path.join(cache_dir, "doc_concept_info_500.pck")
+    word2word_path = os.path.join(cache_dir, "word2word.pck")
+    doc_info_path = os.path.join(cache_dir, "doc_info.pck")
+    doc_concept_info_path = os.path.join(cache_dir, "doc_concept_info.pck")
 
     # loading nodes and edges
     num_nodes_dict, data_dict = {}, {}
@@ -44,7 +43,10 @@ def prepare_graph(
     num_classes = nodes["doc"]["label"].shape[1]
 
     if "word" in feature_type:
-        W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight = get_document_word(doc_content, word2word_path, lang=lang)
+        W, W_feat, DvsW_weight, WvsW_weight = utils.cache_to_path(word2word_path, get_document_word, doc_content, lang=lang, cache_dir=cache_dir)
+        DvsW = DvsW_weight.nonzero()
+        WvsW = WvsW_weight.nonzero()
+
         data_dict.update({
             ("word", "word#relate", "word"): WvsW,
             ("doc", "word#have", "word"): DvsW,
@@ -119,23 +121,13 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "data/cache")
 
     return D, D_feat, D_label, D_mask, doc_content
 
-def get_document_word(doc_content: List[str], word2word_path: str, lang: str = "en"):
-    if os.path.exists(word2word_path):
-        W, W_feat, DvsW_weight, WvsW_weight = utils.load(word2word_path)
-    else:
-        doc_content = utils.normalize_text(doc_content, lang=lang)
-        DvsW_weight, W = utils.get_tfidf_score(doc_content, lang=lang)
-        sorted_words = [None] * len(W)
-        for k, v in W.items():
-            sorted_words[v] = k
-        W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content)
-        WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
-        utils.dump((W, W_feat, DvsW_weight, WvsW_weight), word2word_path)
-
-    DvsW = DvsW_weight.nonzero()
-    WvsW = WvsW_weight.nonzero()
-
-    return W, W_feat, DvsW, WvsW, DvsW_weight, WvsW_weight
+def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "data/cache"):
+    doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
+    DvsW_weight, W = utils.get_tfidf_score(doc_content, lang=lang, cache_dir=cache_dir)
+    sorted_words = sorted(W, key=W.get)
+    W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content, cache_dir=cache_dir)
+    WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
+    return W, W_feat, DvsW_weight, WvsW_weight
 
 def get_document_cluster(D: Dict[str, int], D_feat: List, n_clusters: int = 100):
     Cl_feat, cluster_assignment, DvsCl_weight, ClvsCl_weight = utils.get_kmean_matrix(D_feat, num_cluster_list=[n_clusters])

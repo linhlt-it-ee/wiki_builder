@@ -92,7 +92,7 @@ class WeightedGATConv(GATConv):
             msg_fn = fn.u_mul_e('ft', 'a', 'm')
             if edge_weight is not None:
                 assert edge_weight.shape[0] == graph.number_of_edges()
-                graph.edata['a'] *= edge_weight.reshape(-1, 1, 1)
+                graph.edata['a'] += edge_weight.reshape(-1, 1, 1)
             graph.update_all(fn.u_mul_e('ft', 'a', 'm'), fn.sum('m', 'ft'))
 
             rst = graph.dstdata['ft']

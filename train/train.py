@@ -23,11 +23,10 @@ def run(
     test_mask = graph.nodes[target_node].data["test_mask"]
     labels = graph.nodes[target_node].data["label"]
     inputs = graph.ndata["feat"]
-    # edge_weight = {}
-    if "weight" in graph.edata:
-        edge_weight = {k[1]: v for k, v in graph.edata["weight"].items()}
-    else:
-        edge_weight = {}
+    edge_weight = {} if not "weight" in graph.edata else {k[1]: v for k, v in graph.edata["weight"].items()}
+    print(edge_weight)
+
+    # settings
     criterion = nn.BCEWithLogitsLoss()
     optimizer = optim.AdamW(model.parameters(), lr=lr)
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda it : lr * 0.9 ** (it - 1))
@@ -44,6 +43,7 @@ def run(
         query_train_mask = train_mask
         update_freq = 100
     
+    # validation at the first round
     iteration = 0
     train_scores = predict(
         model, graph, target_node, inputs, edge_weight, labels, train_mask, threshold=threshold
@@ -55,6 +55,8 @@ def run(
     log(writer, val_scores, 0, type="val")
     print(val_scores)
 
+    # training
+    # excel_writer = pd.ExcelWriter("./tmp/probs.xlsx")
     init_state = model.state_dict()
     for rnd in range(n_rounds):
         logging.info(f"START ROUND {rnd + 1}")
@@ -88,12 +90,15 @@ def run(
                 lr_scheduler.step()
 
         # choose next samples for the next round (except the last)
-        if use_active_learning and round != (n_rounds - 1):
+        if use_active_learning and rnd != (n_rounds - 1):
             probs = torch.sigmoid(logits.detach().cpu())
             query_train_mask = strategy.query(probs, features=features.detach().cpu())
             # query_train_mask = strategy.query(probs, features=inputs[target_node].cpu())
+            if rnd < 10:
+                pd.DataFrame(probs.numpy()).to_excel(excel_writer, sheet_name=f"Round{rnd+1}")
 
     # inference at the last round
+    # excel_writer.close()
     print("**** TEST ****")
     test_scores = predict(
         model, graph, target_node, inputs, edge_weight, labels, test_mask, threshold=threshold

@@ -106,7 +106,10 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "data/cache")
     D_mask = {dtype: [] for dtype in ("train_mask", "val_mask", "test_mask")}
     for did in tqdm(D, desc="Loading documents"):
         x = docs[did]
+        x["desc"] = x["desc"][:30000]
         doc_content.append(x["content"])
+        # doc_content.append(x["1st_claim"])
+        # doc_content.append(x["desc"])
         label_encoder.update(x["labels"])
         D_label.append(x["labels"])
         D_feat.append(x["desc"])
@@ -142,25 +145,28 @@ def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str =
     concept_path = os.path.join(cache_dir, "concept_labels.json")
 
     doc_mention = utils.load_json(doc_mention_path)
-    mention_labels = set()
-    for did, x in doc_mention.items():
-        if did in D:
-            mention_labels.update(x)
+    mention_concept = utils.load_json(mention_concept_path)
+    all_mentions = set([e for did, mention in doc_mention.items() if did in D for e in mention])
 
     # create concept graph
-    mention_concept = utils.load_json(mention_concept_path)
-    mentions = set() 
     CvsC_graph = nx.DiGraph()
+    mention_ids = defaultdict(list)
+    mentions = set()
     for mid, x in mention_concept.items():
-        if x["label"] in mention_labels:
-            mentions.add(mid)
-            for parent in x["parents"]:
-                if parent["level"] == 1:
-                    continue
-                path = parent["path"].split(" >> ")
-                nx.add_path(CvsC_graph, path)
+        if len(x["parents"]) == 0:
+            continue
+        for label in x["name_mention"]:
+            label = label.lower()
+            if label in all_mentions:
+                mention_ids[label].append(mid)
+                mentions.add(mid)
+        for par in x["parents"]:
+            path = par["path"].split(" >> ")
+            nx.add_path(CvsC_graph, path)
+    logging.info(f"Original concept graph: {CvsC_graph}")
 
-    C = set()   # include name mentions
+    # prune concept graph
+    C = set()
     children = mentions
     C.update(children)
     for level, parlevel_num in enumerate(par_num, start=1):
@@ -173,18 +179,11 @@ def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str =
         children = [k for k, v in sorted(cnt.items(), key=lambda x : (x[1], x[0]), reverse=True) if v >= 2][:parlevel_num]
         C.update(children)
         logging.info(f"Extracting {parlevel_num} parents level {level} with most children, got {len(children)}")
-
     C = C.difference(mentions)
     CvsC_graph = nx.DiGraph(CvsC_graph.subgraph(C))
     logging.info(f"CvsC graph: {CvsC_graph}")
     logging.info(f"C size: {len(C)}")
-    
-    # mapping name_mentions and their IDs to connect a document and its mentioned concepts
-    mention_ids = defaultdict(set)
-    for mid, mention_info in mention_concept.items():
-        for label in set(x.lower() for x in mention_info["name_mention"]):  # match normalized nouns
-            mention_ids[label].add(mid)
-
+   
     DvsC_graph = nx.DiGraph()
     for did, mentions in doc_mention.items():
         DvsC_graph.add_node(did)
@@ -200,11 +199,7 @@ def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str =
 
     C = {cid: id for id, cid in enumerate(sorted(C))}
     concepts = utils.load_json(concept_path)
-    C_feat = [None] * len(C)
-    for cid, label in tqdm(concepts.items(), "Encoding concepts"):
-        id = C.get(cid, None)
-        if id is not None:
-            C_feat[id] = label
+    C_feat = [concepts[cid] for cid in C]
     C_feat = utils.get_bert_features(C_feat, max_length=32)
 
     # flatten

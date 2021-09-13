@@ -12,7 +12,7 @@ def dump(obj, save_path: str):
     if os.path.exists(save_path):
         os.remove(path=save_path)
     output = open(save_path, 'wb')
-    pickle.dump(obj, output)    #, protocol=pickle.HIGHEST_PROTOCOL
+    pickle.dump(obj, output)    # protocol=pickle.HIGHEST_PROTOCOL
     output.close()
 
 def load(save_path: str):
@@ -31,7 +31,7 @@ def load_json(file_path):
     with open(file_path, "r") as f:
         return json.load(f)
 
-def dump_json(obj,save_path):
+def dump_json(obj, save_path):
     with open(save_path, 'w') as outfile:
         json.dump(obj, outfile, ensure_ascii=False, indent=2)
 
@@ -55,13 +55,12 @@ def get_claims(excel_file, sheet_name):  # get values by tag column
     all_claims = df["Claim 1"].values
     return all_claims
 
-def get_file_name_in_dir(folder_name,file_type):
+def get_file_name_in_dir(folder_name, file_type):
     file_names = glob.glob(folder_name + '/*.'+file_type)
     file_names.sort(reverse=True)
     return file_names
 
-def get_file_name_in_dir_regex(folder_name,ending_txt):
-    file_names = glob.glob(folder_name + '/*'+ending_txt)
+def get_file_name_in_dir_regex(folder_name, ending_txt):
+    file_names = glob.glob(folder_name + '/*' + ending_txt)
     file_names.sort(reverse=True)
     return file_names
-

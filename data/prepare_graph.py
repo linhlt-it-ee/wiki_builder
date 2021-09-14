@@ -8,12 +8,14 @@ from collections import defaultdict
 
 import dgl
 import numpy as np
-import networkx as nx
 import torch
 from dgl import DGLGraph
+
 import utils
+import data.utils as data_utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 def prepare_graph(
         doc_path: str,
@@ -46,7 +48,6 @@ def prepare_graph(
         W, W_feat, DvsW_weight, WvsW_weight = utils.cache_to_path(word2word_path, get_document_word, doc_content, lang=lang, cache_dir=cache_dir)
         DvsW = DvsW_weight.nonzero()
         WvsW = WvsW_weight.nonzero()
-
         data_dict.update({
             ("word", "word#relate", "word"): WvsW,
             ("doc", "word#have", "word"): DvsW,
@@ -57,7 +58,7 @@ def prepare_graph(
         edges["word#relate"]["weight"] = torch.tensor(np.asarray(WvsW_weight[WvsW]).squeeze(), dtype=torch.float32)
         edges["word#have"]["weight"] = edges["word#in"]["weight"] = torch.tensor(np.asarray(DvsW_weight[DvsW]).squeeze(), dtype=torch.float32)
 
-    if "cluster" in feature_type:
+    if "doc_cluster" in feature_type:
         Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight = get_document_cluster(D, D_feat, n_clusters=n_clusters)
         data_dict.update({
             ("cluster", "cluster#connect", "cluster"): ClvsCl,
@@ -106,13 +107,10 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "data/cache")
     D_mask = {dtype: [] for dtype in ("train_mask", "val_mask", "test_mask")}
     for did in tqdm(D, desc="Loading documents"):
         x = docs[did]
-        x["desc"] = x["desc"][:30000]
-        doc_content.append(x["content"])
-        # doc_content.append(x["1st_claim"])
-        # doc_content.append(x["desc"])
         label_encoder.update(x["labels"])
+        doc_content.append(x["desc"][:30000])
         D_label.append(x["labels"])
-        D_feat.append(x["desc"])
+        D_feat.append(x["desc"][:10000])
         D_mask["train_mask"].append(x["is_train"])
         D_mask["val_mask"].append(x["is_dev"])
         D_mask["test_mask"].append(x["is_test"])
@@ -146,69 +144,20 @@ def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str =
 
     doc_mention = utils.load_json(doc_mention_path)
     mention_concept = utils.load_json(mention_concept_path)
-    all_mentions = set([e for did, mention in doc_mention.items() if did in D for e in mention])
-
-    # create concept graph
-    CvsC_graph = nx.DiGraph()
-    mention_ids = defaultdict(list)
-    mentions = set()
-    for mid, x in mention_concept.items():
-        if len(x["parents"]) == 0:
-            continue
-        for label in x["name_mention"]:
-            label = label.lower()
-            if label in all_mentions:
-                mention_ids[label].append(mid)
-                mentions.add(mid)
-        for par in x["parents"]:
-            path = par["path"].split(" >> ")
-            nx.add_path(CvsC_graph, path)
-    logging.info(f"Original concept graph: {CvsC_graph}")
-
-    # prune concept graph
-    C = set()
-    children = mentions
-    C.update(children)
-    for level, parlevel_num in enumerate(par_num, start=1):
-        cnt = defaultdict(lambda : 0)
-        for child in children:
-            for par in CvsC_graph.successors(child):
-                if par not in C:    # disable nodes in previous levels
-                    cnt[par] += 1
-        # discard parents with less than 2 children
-        children = [k for k, v in sorted(cnt.items(), key=lambda x : (x[1], x[0]), reverse=True) if v >= 2][:parlevel_num]
-        C.update(children)
-        logging.info(f"Extracting {parlevel_num} parents level {level} with most children, got {len(children)}")
-    C = C.difference(mentions)
-    CvsC_graph = nx.DiGraph(CvsC_graph.subgraph(C))
-    logging.info(f"CvsC graph: {CvsC_graph}")
-    logging.info(f"C size: {len(C)}")
-   
-    DvsC_graph = nx.DiGraph()
-    for did, mentions in doc_mention.items():
-        DvsC_graph.add_node(did)
-        # traverse meanings of a name_mention in a document
-        for label in mentions:
-            for mid in mention_ids[label]:
-                # consider concept level 1 of each meaning
-                for concept in mention_concept[mid]["parents"]:
-                    if concept["level"] == 1 and concept["id"] in CvsC_graph.nodes:
-                        DvsC_graph.add_edge(did, concept["id"])
-    logging.info(f"DvsC graph: {DvsC_graph}")
-    logging.info(f"D size: {len(D)}")
-
+    C, CvsC_edges, DvsC_edges = data_utils.create_document_concept_graph(D.keys(), doc_mention, mention_concept, par_num)
     C = {cid: id for id, cid in enumerate(sorted(C))}
+    
     concepts = utils.load_json(concept_path)
     C_feat = [concepts[cid] for cid in C]
-    C_feat = utils.get_bert_features(C_feat, max_length=32)
+    C_feat = utils.get_phrase_embedding(C_feat)
+    # C_feat = utils.get_bert_features(C_feat, max_length=32)
 
-    # flatten
     DvsC = ([], [])
     CvsC = ([], [])
-    for u, v in DvsC_graph.edges:
+    for u, v in DvsC_edges:
         DvsC[0].append(D[u])
         DvsC[1].append(C[v])
-    for u, v in CvsC_graph.edges:
+    for u, v in CvsC_edges:
         CvsC[0].append(C[u])
         CvsC[1].append(C[v])
 

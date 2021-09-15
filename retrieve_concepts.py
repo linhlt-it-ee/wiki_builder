@@ -11,10 +11,7 @@ from args import *
 import data_crawl.utils as data_utils
 
 
-def retrieve_concepts(data_dir: str, lang: str):
-    doc_path = os.path.join(data_dir, "data.ndjson")
-    # saved path
-    cache_dir = os.path.join(data_dir, "cache")
+def retrieve_concepts(doc_path: str, cache_dir: str, lang: str):
     os.makedirs(cache_dir, exist_ok=True)
     doc_mention_path = os.path.join(cache_dir, "doc_mention.json")
     mention_dir = os.path.join(cache_dir, "mentions")
@@ -37,7 +34,7 @@ def extract_name_mentions(data_path: str, lang: str = "en") -> Dict[str, List[st
     name_mention = {} 
     for doc in tqdm(docs, desc="Extract nouns"):
         if lang == "en":
-            nouns = data_utils.get_nouns_nltk(doc["content"], ngram_range=3)
+            nouns = data_utils.get_nouns_nltk(doc["1st_claim"], ngram_range=3)
         elif lang == "ja":
             nouns = data_utils.get_nouns_janome(doc["content"])
         else:
@@ -111,4 +108,4 @@ def search_wiki_with_forward_iteration(mention_path, output_entity_file, not_wik
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s %(module)s %(message)s", level=logging.DEBUG)
     args = make_data_args()
-    retrieve_concepts(args.data_dir, lang=args.lang)
+    retrieve_concepts(args.data_path, args.cache_dir, lang=args.lang)

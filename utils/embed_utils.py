@@ -47,9 +47,9 @@ def normalize_text(doc_content_list: List[str], lang: str = "en", cache_dir="./t
 
 def get_multihot_encoding(labels: List[List[str]], label_encoder: Dict[str, int]):
     n_samples = len(labels)
-    embedding = np.zeros((n_samples, len(label_encoder)))
+    embedding = np.zeros((n_samples, len(label_encoder)), dtype=bool)
     slice_idx = np.array([[rid, label_encoder[e]] for rid, x in enumerate(labels) for e in x]).T.tolist()
-    embedding[slice_idx] = 1
+    embedding[slice_idx] = True
     return embedding
 
 def get_bert_features(text: List[str], max_length: int = 64, lang: str = "en"):

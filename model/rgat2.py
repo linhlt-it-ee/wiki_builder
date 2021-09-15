@@ -23,7 +23,7 @@ class RGAT2(nn.Module):
         for i in range(n_layers - 1):
             hidden_head_feat = hidden_feat // num_heads if multihead_aggregate == "concat" else hidden_feat
             self.convs.append(HeteroGraphConv(
-                {rel: WeightedGATConv(last_feat, hidden_head_feat, num_heads, feat_drop=0.5, attn_drop=0.2) for rel in rel_names},
+                {rel: WeightedGATConv(last_feat, hidden_head_feat, num_heads, feat_drop=dropout, attn_drop=dropout) for rel in rel_names},
                 aggregate=aggregate,
             ))
             self.skips.append(nn.Linear(last_feat, hidden_feat))

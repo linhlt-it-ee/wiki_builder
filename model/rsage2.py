@@ -18,7 +18,7 @@ class RSAGE2(nn.Module):
         last_feat = in_feat
         for _ in range(n_layers - 1):
             self.convs.append(HeteroGraphConv(
-                {rel: SAGEConv(last_feat, hidden_feat, aggregator_type="mean", feat_drop=0.5) for rel in rel_names},
+                {rel: SAGEConv(last_feat, hidden_feat, aggregator_type="mean", feat_drop=dropout) for rel in rel_names},
                 aggregate=aggregate
             ))
             last_feat = hidden_feat

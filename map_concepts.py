@@ -7,8 +7,7 @@ import utils
 from args import *
 
 
-def map_concepts(data_dir: str):
-    cache_dir = os.path.join(data_dir, "cache")
+def map_concepts(cache_dir: str):
     mention_dir = os.path.join(cache_dir, "mentions")
     # saved path
     concept_path = os.path.join(cache_dir, "concept_labels.json")
@@ -83,4 +82,4 @@ def trace_path(root_id, entity, max_level):
 if __name__ == "__main__":
     logging.basicConfig(format="%(asctime)s %(module)s %(message)s", level=logging.DEBUG)
     args = make_data_args()
-    map_concepts(args.data_dir)
+    map_concepts(args.cache_dir)

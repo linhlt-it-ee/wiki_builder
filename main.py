@@ -23,8 +23,7 @@ if __name__ == "__main__":
         sync_tensorboard=True,
     )
 
-    target_node = "doc"
-    graph, doc_ids, n_classes = prepare_graph(
+    graph, target_node, n_classes = prepare_graph(
         args.data_path,
         args.cache_dir, 
         feature_type=args.feature_type.split(","), 

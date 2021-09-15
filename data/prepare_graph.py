@@ -1,20 +1,16 @@
 import os
-import logging
 import sys
 sys.path.append("../")
 from typing import Tuple, List, Dict
-from tqdm import tqdm
-from collections import defaultdict
 
-import dgl
 import numpy as np
 import torch
+from tqdm import tqdm
 from dgl import DGLGraph
 
 import utils
 import data.utils as data_utils
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+import data.dataset as dataset
 
 
 def prepare_graph(
@@ -24,88 +20,51 @@ def prepare_graph(
         lang: str = "en",
         par_num: List[int] = None, 
         n_clusters: int = None,
-    ) -> Tuple[DGLGraph, Dict[str, int], int]:
-    # cached files
+    ) -> Tuple[DGLGraph, int]:
     os.makedirs(cache_dir, exist_ok=True)
-    word2word_path = os.path.join(cache_dir, "word2word.pck")
-    doc_info_path = os.path.join(cache_dir, "doc_info.pck")
-    doc_cluster_info_path = os.path.join(cache_dir, "doc_cluster_info.pck")
-    doc_concept_info_path = os.path.join(cache_dir, "doc_concept_info.pck")
+    cache_doc_path = os.path.join(cache_dir, "cached_doc.pck")
+    cache_word_path = os.path.join(cache_dir, "cached_word.pck")
+    cache_cluster_path = os.path.join(cache_dir, "cached_cluster.pck")
+    cache_concept_path = os.path.join(cache_dir, "cached_concept.pck")
 
-    num_nodes_dict, data_dict = {}, {}
-    nodes, edges = defaultdict(lambda : {}), defaultdict(lambda : {})
-
-    D, D_feat, D_label, D_mask, doc_content = utils.cache_to_path(doc_info_path, get_document, doc_path, lang=lang, cache_dir=cache_dir)
-    nodes["doc"]["train_mask"] = torch.tensor(D_mask["train_mask"], dtype=torch.bool)
-    nodes["doc"]["val_mask"] = torch.tensor(D_mask["val_mask"], dtype=torch.bool)
-    nodes["doc"]["test_mask"] = torch.tensor(D_mask["test_mask"], dtype=torch.bool)
-    nodes["doc"]["label"] = torch.tensor(D_label, dtype=torch.long)
-    nodes["doc"]["feat"] = torch.tensor(D_feat, dtype=torch.float32)
-    num_nodes_dict["doc"] = len(D)
-    num_classes = nodes["doc"]["label"].shape[1]
+    ds = dataset.PatentClassificationDataset(predict_category="doc")
+    D_encoder, D_feat, D_label, D_mask, doc_content = utils.cache_to_path(
+        cache_doc_path, get_document, doc_path, lang=lang, cache_dir=cache_dir
+    )
+    ds.add_nodes("doc", D_encoder, feat=D_feat, label=D_label, **D_mask)
 
     if "word" in feature_type:
-        W, W_feat, DvsW_weight, WvsW_weight = utils.cache_to_path(
-            word2word_path, get_document_word, doc_content, lang=lang, cache_dir=cache_dir
+        W_encoder, W_feat, DvsW_weight, WvsW_weight = utils.cache_to_path(
+            cache_word_path, get_document_word, doc_content, lang=lang, cache_dir=cache_dir
         )
         DvsW = DvsW_weight.nonzero()
         WvsW = WvsW_weight.nonzero()
-        data_dict.update({
-            ("word", "word#relate", "word"): WvsW,
-            ("doc", "word#have", "word"): DvsW,
-            ("word", "word#in", "doc"): (DvsW[1], DvsW[0]),
-        })
-        num_nodes_dict["word"] = len(W)
-        nodes["word"]["feat"] = torch.tensor(W_feat, dtype=torch.float32)
-        edges["word#relate"]["weight"] = torch.tensor(np.asarray(WvsW_weight[WvsW]).squeeze(), dtype=torch.float32)
-        edges["word#have"]["weight"] = edges["word#in"]["weight"] = torch.tensor(np.asarray(DvsW_weight[DvsW]).squeeze(), dtype=torch.float32)
+        ds.add_nodes("word", W_encoder, feat=W_feat)
+        ds.add_edges(("word", "word#relate", "word"), WvsW, weight=WvsW_weight[WvsW])
+        ds.add_edges(("doc", "word#have", "word"), DvsW, weight=DvsW_weight[DvsW])
 
     if "label_cluster" in feature_type or "doc_cluster" in feature_type:
         embedding = None if "label_cluster" in feature_type else D_feat
-        Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight = utils.cache_to_path(
-            doc_cluster_info_path, get_document_cluster, D_feat, embedding, n_clusters=n_clusters
+        Cl_encoder, Cl_feat, DvsCl_weight, ClvsCl_weight = utils.cache_to_path(
+            cache_cluster_path, get_document_cluster, D_feat, embedding, n_clusters=n_clusters
         )
-        data_dict.update({
-            ("cluster", "cluster#connect", "cluster"): ClvsCl,
-            ("doc", "cluster#form", "cluster"): DvsCl,
-            ("cluster", "cluster#in", "doc"): (DvsCl[1], DvsCl[0]),
-        })
-        num_nodes_dict["cluster"] = len(Cl_feat)
-        nodes["cluster"]["feat"] = torch.tensor(Cl_feat, dtype=torch.float32)
-        edges["cluster#connect"]["weight"] = torch.tensor(ClvsCl_weight[ClvsCl], dtype=torch.float32)
-        edges["cluster#form"]["weight"] = edges["cluster#in"]["weight"] = torch.tensor(DvsCl_weight[DvsCl], dtype=torch.float32)
+        DvsCl = DvsCl_weight.nonzero()
+        ClvsCl = ClvsCl_weight.nonzero()
+        ds.add_nodes("cluster", Cl_encoder, feat=Cl_feat)
+        ds.add_edges(("cluster", "cluster#relate", "cluster"), ClvsCl, weight=ClvsCl_weight[ClvsCl])
+        ds.add_edges(("doc", "cluster#form", "cluster"), DvsCl, weight=DvsCl_weight[DvsCl])
 
     if "concept" in feature_type:
-        C, C_feat, DvsC, CvsC = utils.cache_to_path(
-            doc_concept_info_path, get_document_concept, D, par_num=par_num, cache_dir=cache_dir
+        C_encoder, C_feat, DvsC, CvsC = utils.cache_to_path(
+            cache_concept_path, get_document_concept, D, par_num=par_num, cache_dir=cache_dir
         )
-        data_dict.update({
-            ("doc", "concept#have", "concept"): DvsC,
-            ("concept", "concept#in", "doc"): (DvsC[1], DvsC[0]),
-            ("concept", "concept#relate", "concept"): CvsC,
-            ("concept", "rev-concept#relate", "concept"): (CvsC[1], CvsC[0]),
-        })
-        num_nodes_dict["concept"] = len(C)
-        nodes["concept"]["feat"] = torch.tensor(C_feat, dtype=torch.float32)
+        ds.add_nodes("concept", C_encoder, feat=C_feat)
+        ds.add_edges(("concept", "concept#in", "concept"), CvsC)
+        ds.add_edges(("doc", "concept#have", "concept"), DvsC)
 
-    # self-loop
-    for ntype, num_nodes in num_nodes_dict.items():
-        data_dict.update({
-            (ntype, f"{ntype}#self-loop", ntype): (range(num_nodes), range(num_nodes))
-        })
-
-    # create heterogeneous graph
-    graph = dgl.heterograph(data_dict=data_dict, num_nodes_dict=num_nodes_dict)
-    for ntype in nodes:
-        for dtype in nodes[ntype]:
-            graph.nodes[ntype].data[dtype] = nodes[ntype][dtype]
-    for etype in edges:
-        for dtype in edges[etype]:
-            graph.edges[etype].data[dtype] = edges[etype][dtype]
-    logging.info(graph)
-    return graph.to(device), D, num_classes
+    return ds.get_graph(), ds.predict_category, ds.num_classes
  
-def get_document(doc_path: str, lang: str = "en", cache_dir: str = "data/cache"):
+def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     docs = {doc["id"] : doc for doc in utils.load_ndjson(doc_path)}
     D = {did: id for id, did in enumerate(sorted(docs.keys()))}
     label_encoder = set()
@@ -123,32 +82,34 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "data/cache")
         D_mask["test_mask"].append(x["is_test"])
 
     label_encoder = {lid: id for id, lid in enumerate(sorted(label_encoder))}
-    utils.dump_json(label_encoder, os.path.join(cache_dir, "doc_label_encoder.json"))
+    utils.dump_json(label_encoder, os.path.join(cache_dir, "label_encoder.json"))
     D_label = utils.get_multihot_encoding(D_label, label_encoder)
     D_feat = utils.get_bert_features(D_feat, max_length=512, lang=lang)
+    doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
 
     return D, D_feat, D_label, D_mask, doc_content
 
-def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "data/cache"):
-    doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
+def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "cache/"):
     DvsW_weight, W = utils.get_tfidf_score(doc_content, lang=lang, cache_dir=cache_dir)
     sorted_words = sorted(W, key=W.get)
     W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content, cache_dir=cache_dir)
     WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
+    DvsW_weight = DvsW_weight.toarray()
+    WvsW_weight = np.tril(WvsW_weight)
     return W, W_feat, DvsW_weight, WvsW_weight
 
 def get_document_cluster(D_feat: List, embedding: List = None, n_clusters: int = 100):
     if embedding is None:
-        subclass_titles = [e for x in data_utils.IPC_SUBCLASS.values() for e in x]
+        # subclass_titles = [e for x in data_utils.IPC_SUBCLASS.values() for e in x]
+        subclass_titles = [e for x in data_utils.IPC_CLASS.values() for e in x]
         embedding = utils.get_bert_features(subclass_titles, max_length=32)
+    Cl = {str(id): id for id in range(n_clusters)}
     Cl_feat = utils.get_kmean_matrix(embedding, n_clusters=n_clusters)
-    ClvsCl_weight = utils.pairwise_distances(Cl_feat, n_jobs=4)
-    ClvsCl = ClvsCl_weight.nonzero()
+    ClvsCl_weight = np.tril(utils.pairwise_distances(Cl_feat, n_jobs=4))
     DvsCl_weight = utils.pairwise_distances(D_feat, Cl_feat, n_jobs=4)
-    DvsCl = DvsCl_weight.nonzero()
-    return Cl_feat, DvsCl, ClvsCl, DvsCl_weight, ClvsCl_weight
+    return Cl, Cl_feat, DvsCl_weight, ClvsCl_weight
 
-def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str = "data/cache"):
+def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str = "cache/"):
     # temporary files (for `concept` nodes)
     doc_mention_path = os.path.join(cache_dir, "doc_mention.json")
     mention_concept_path = os.path.join(cache_dir, "concept_links.json")

@@ -56,7 +56,7 @@ def get_claims(excel_file, sheet_name):  # get values by tag column
     return all_claims
 
 def get_file_name_in_dir(folder_name, file_type):
-    file_names = glob.glob(folder_name + '/*.'+file_type)
+    file_names = glob.glob(folder_name + '/*.' + file_type)
     file_names.sort(reverse=True)
     return file_names
 

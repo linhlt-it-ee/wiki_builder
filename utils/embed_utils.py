@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import List, Dict
 
 import nltk
@@ -69,11 +70,13 @@ def get_bert_features(text: List[str], max_length: int = 64, lang: str = "en"):
     with torch.no_grad():
         while start_idx < n_text - 1:
             batch_size = min(32, n_text - start_idx)
-            # truncate to prevent segmentation fault and speed up
-            batch_text = [x[:5000] for x in text[start_idx : start_idx + batch_size]]
+            batch_text = []
+            for x in text[start_idx : start_idx + batch_size]:
+                if len(x) > 10000:
+                    logging.debug(f"Too long text might cause segmentation fault and slow-down tokenizing time: {len(x)}")
+                batch_text.append(x)
             inputs = tokenizer.batch_encode_plus(
-                batch_text,
-                padding="max_length", truncation=True, 
+                batch_text, padding="max_length", truncation=True, 
                 max_length=max_length, return_tensors="pt"
             ).to(device)
             hidden_state = model(**inputs).last_hidden_state.detach().cpu().numpy()

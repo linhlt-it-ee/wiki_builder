@@ -43,6 +43,8 @@ class PatentClassificationDataset:
                 graph.nodes[ntype].data[dtype] = _convert2tensor(self.nodes[ntype][dtype])
         for etype in self.edges:
             for dtype in self.edges[etype]:
+                if self.edges[etype][dtype] is None:
+                    continue
                 graph.edges[etype].data[dtype] = _convert2tensor(self.edges[etype][dtype])
         return graph.to(device)
 

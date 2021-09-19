@@ -31,6 +31,7 @@ if __name__ == "__main__":
         par_num=list(map(int, args.par_num.split(","))), 
         n_clusters=args.n_clusters,
     )
+    logging.info(graph)
     model = prepare_model(
         args.model_name, 
         graph, 

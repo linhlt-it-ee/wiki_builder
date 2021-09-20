@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from dgl import DGLGraph
+from sklearn.preprocessing import normalize
 
 import utils
 import data.utils as data_utils
@@ -54,7 +55,7 @@ def prepare_graph(
     if "cluster" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_cluster.pck")
         Cl_encoder, Cl_feat, DvsCl_weight, ClvsCl_weight = utils.cache_to_path(
-            cache_path, D_feat, n_clusters=n_clusters
+            cache_path, get_document_cluster, D_feat, n_clusters=n_clusters
         )
         DvsCl = DvsCl_weight.nonzero()
         ClvsCl = ClvsCl_weight.nonzero()
@@ -90,13 +91,13 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     label_encoder = set([e for x in doc_labels for e in x])
     label_encoder = {lid: id for id, lid in enumerate(sorted(label_encoder))}
     utils.dump_json(label_encoder, os.path.join(cache_dir, "label_encoder.json"))
-    D_feat = utils.get_bert_features(doc_content, max_length=512, lang=lang)
+    D_feat = utils.get_sbert_embedding(doc_content, lang=lang)
     D_label = utils.get_multihot_encoding(doc_labels, label_encoder)
-    doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
 
     return D, D_feat, D_label, D_mask, doc_content, doc_labels
 
 def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "cache/"):
+    doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
     DvsW_weight, W = utils.get_tfidf_score(doc_content, lang=lang, cache_dir=cache_dir)
     sorted_words = sorted(W, key=W.get)
     W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content, cache_dir=cache_dir)
@@ -105,23 +106,39 @@ def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str =
     WvsW_weight = np.tril(WvsW_weight)
     return W, W_feat, DvsW_weight, WvsW_weight
 
-def get_document_label(D_feat: List, doc_labels: List[List[str]]):
-    label_desc = []
-    label_desc_encoder = defaultdict(list)
+def get_document_label(D_feat: str, doc_labels: List[List[str]]):
+    tmp_path = "./label_embedding.pck"
+    label_encoder = defaultdict(list)
+    desc_embeddings = []
     for label, descriptions in data_utils.IPC_SUBCLASS.items():
         for desc in descriptions:
-            label_desc.append(desc)
-            label_desc_encoder[label].append(len(label_desc))
-    L_feat = utils.get_bert_features(label_desc, max_length=32)
-    L = {str(id): id for id in range(len(L_feat))}
-    DvsL_weight = utils.pairwise_distances(D_feat, L_feat, n_jobs=4)
+            label_encoder[label].append(len(desc_embeddings))
+            desc_embeddings.append(desc)
+    if os.path.exists(tmp_path):
+        desc_embeddings = utils.load(tmp_path)
+    else:
+        desc_embeddings = utils.get_sbert_embedding(desc_embeddings, lang="en")
+        utils.dump(desc_embeddings, tmp_path)
+
+    num_labels = len(data_utils.IPC_SUBCLASS)
+    L = {str(id): id for id in range(num_labels)}
+    L_feat, DvsL_weight = [], []
+    for label, descriptions in tqdm(data_utils.IPC_SUBCLASS.items(), desc="Label embedding"):
+        inputs = [desc_embeddings[desc_id] for desc_id in label_encoder[label]]
+        feat = utils.get_kmean_matrix(inputs, n_clusters=1)
+        dist = utils.pairwise_distances(D_feat, inputs, n_jobs=4).min(axis=1)
+        # dist = utils.pairwise_distances(D_feat, feat, n_jobs=4).squeeze()
+        L_feat.append(feat)
+        DvsL_weight.append(dist)
+    L_feat = np.vstack(L_feat).astype(np.float32)
+    DvsL_weight = normalize(np.vstack(DvsL_weight).T)
     return L, L_feat, DvsL_weight
 
 def get_document_cluster(D_feat: List, n_clusters: int = 100):
     Cl = {str(id): id for id in range(n_clusters)}
     Cl_feat = utils.get_kmean_matrix(D_feat, n_clusters=n_clusters)
-    ClvsCl_weight = np.tril(utils.pairwise_distances(Cl_feat, n_jobs=4))
-    DvsCl_weight = utils.pairwise_distances(D_feat, Cl_feat, n_jobs=4)
+    ClvsCl_weight = np.tril(normalize(utils.pairwise_distances(Cl_feat, n_jobs=4)))
+    DvsCl_weight = normalize(utils.pairwise_distances(D_feat, Cl_feat, n_jobs=4))
     return Cl, Cl_feat, DvsCl_weight, ClvsCl_weight
 
 def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str = "cache/"):

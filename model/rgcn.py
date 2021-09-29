@@ -7,8 +7,8 @@ from dgl.nn import HeteroGraphConv, GraphConv
 
 
 class RGCN(nn.Module):
-    def __init__(self, 
-        in_feat: int, hidden_feat: int, n_classes: int, n_layers: int, 
+    def __init__(self,
+        in_feat: int, hidden_feat: int, n_classes: int, n_layers: int,
         rel_names: List[str], aggregate: str = "sum",
         dropout: float = 0.2,
     ):
@@ -24,14 +24,18 @@ class RGCN(nn.Module):
             ))
             last_feat = hidden_feat
 
-        self.clf = HeteroGraphConv(
-            {rel: GraphConv(last_feat, n_classes) for rel in rel_names}, aggregate=aggregate,
+        self.clf = nn.Sequential(
+            # nn.Linear(hidden_feat, hidden_feat),
+            # nn.BatchNorm1d(hidden_feat),
+            nn.Dropout(dropout),
+            nn.ReLU(),
+            nn.Linear(hidden_feat, n_classes),
         )
 
     def forward(
         self, graph: DGLGraph, inputs: Dict, 
-        target_node: str, edge_weight: Dict = None,
-        return_features: bool = False,
+        target_node: str, edge_weight: Dict = None, 
+        return_features: bool = False
     ):
         h = {k: self.dropout(v) for k, v in inputs.items()}
         mod_kwargs = {rel: {"edge_weight": weight} for rel, weight in edge_weight.items()}
@@ -39,6 +43,5 @@ class RGCN(nn.Module):
             h = conv(graph, h, mod_kwargs=mod_kwargs)
             h = {k: F.relu(v) for k, v in h.items()}
         features = h[target_node]
-        h = self.clf(graph, h, mod_kwargs=mod_kwargs)
-        logits = h[target_node]
+        logits = self.clf(features)
         return (features, logits) if return_features else logits

@@ -24,7 +24,6 @@ def run(
     labels = graph.nodes[target_node].data["label"]
     inputs = graph.ndata["feat"]
     edge_weight = {} if not "weight" in graph.edata else {k[1]: v for k, v in graph.edata["weight"].items()}
-    print(edge_weight)
 
     # settings
     criterion = nn.BCEWithLogitsLoss()
@@ -59,7 +58,8 @@ def run(
     # excel_writer = pd.ExcelWriter("./tmp/probs.xlsx")
     init_state = model.state_dict()
     for rnd in range(n_rounds):
-        logging.info(f"START ROUND {rnd + 1}")
+        num_samples = query_train_mask.sum()
+        logging.info(f"START ROUND {rnd + 1}: {num_samples} samples")
         model.load_state_dict(init_state)
         pbar = trange(round_epoch, desc="Training")
         for epoch in pbar:
@@ -92,10 +92,10 @@ def run(
         # choose next samples for the next round (except the last)
         if use_active_learning and rnd != (n_rounds - 1):
             probs = torch.sigmoid(logits.detach().cpu())
-            query_train_mask = strategy.query(probs, features=features.detach().cpu())
-            # query_train_mask = strategy.query(probs, features=inputs[target_node].cpu())
-            if rnd < 10:
-                pd.DataFrame(probs.numpy()).to_excel(excel_writer, sheet_name=f"Round{rnd+1}")
+            query_train_mask = strategy.query(probs, labels.cpu(), features=features.detach().cpu())
+            # query_train_mask = strategy.query(probs, labels, features=inputs[target_node].cpu())
+            # if rnd < 10:
+            #     pd.DataFrame(probs.numpy()).to_excel(excel_writer, sheet_name=f"Round{rnd+1}")
 
     # inference at the last round
     # excel_writer.close()

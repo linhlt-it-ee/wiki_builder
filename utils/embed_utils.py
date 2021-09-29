@@ -59,33 +59,45 @@ def get_bert_features(text: List[str], max_length: int = 64, lang: str = "en"):
         pretrained_model_name = "cl-tohoku/bert-base-japanese-char"
     else:
         raise NotImplementedError
+
     model = AutoModel.from_pretrained(pretrained_model_name).to(device)
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-
-    res = []
-    n_text = len(text)
-    pbar = tqdm(total=n_text, desc="Featurizing")
     model.eval()
-    start_idx = 0
-    with torch.no_grad():
-        while start_idx < n_text - 1:
-            batch_size = min(32, n_text - start_idx)
-            batch_text = []
-            for x in text[start_idx : start_idx + batch_size]:
-                if len(x) > 10000:
-                    logging.debug(f"Too long text might cause segmentation fault and slow-down tokenizing time: {len(x)}")
-                batch_text.append(x)
-            inputs = tokenizer.batch_encode_plus(
-                batch_text, padding="max_length", truncation=True, 
-                max_length=max_length, return_tensors="pt"
-            ).to(device)
-            hidden_state = model(**inputs).last_hidden_state.detach().cpu().numpy()
-            embedding = np.take(hidden_state, indices=0, axis=1)    # pool first
-            res.append(embedding)
-            pbar.update(batch_size)
-            start_idx += batch_size
+    res = []
+    for batch_text in yield_batch(text):
+        inputs = tokenizer.batch_encode_plus(
+            batch_text, padding="max_length", truncation=True, 
+            max_length=max_length, return_tensors="pt"
+        ).to(device)
+        hidden_state = model(**inputs).last_hidden_state.detach().cpu().numpy()
+        embedding = np.take(hidden_state, indices=0, axis=1)    # pool first
+        res.append(embedding)
 
     return np.vstack(res)
+
+def get_sbert_embedding(text: List[str], lang: str = "en"):
+    from sentence_transformers import SentenceTransformer
+    if lang == "en":
+        pretrained_model_name = "sentence-transformers/all-distilroberta-v1"
+    else:
+        raise NotImplementedError
+
+    model = SentenceTransformer(pretrained_model_name)
+    res = []
+    for batch_text in yield_batch(text):
+        embedding = model.encode(batch_text)
+        res.append(embedding)
+    return np.vstack(res)
+
+def yield_batch(arr: List):
+    arr_len = len(arr)
+    pbar = tqdm(total=arr_len, desc="Batching")
+    start_idx = 0
+    while start_idx < arr_len - 1:
+        batch_size = min(32, arr_len - start_idx)
+        yield arr[start_idx : start_idx + batch_size]
+        pbar.update(batch_size)
+        start_idx += batch_size
 
 def get_word_embedding(words: List[str], corpus: List[str], cache_dir="./tmp"):
     sentences = [sent.split() for sent in corpus]

@@ -7,11 +7,22 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-def get_tfidf_score(texts, lang: str = "en", cache_dir="./tmp"):
+def get_tfidf_score(text: List[str], vocab: List[str] = None, lang: str = "en", cache_dir="./tmp"):
     stop_words = None if lang != "en" else "english"
-    vectorizer = TfidfVectorizer(tokenizer=lambda x : x.split(), stop_words=stop_words, min_df=10, max_df=0.7)
-    X = vectorizer.fit_transform(texts)
+    vectorizer = TfidfVectorizer(
+        tokenizer=lambda x : x.split(), stop_words=stop_words, vocabulary=None,
+        min_df=5, max_df=0.7
+    ).fit(text)
     tf_vocab = vectorizer.vocabulary_
+    if vocab is not None:
+        vocab = list(set(vocab).intersection(tf_vocab.keys()))
+        assert len(vocab) != 0, "Empty vocabulary"
+        vectorizer = TfidfVectorizer(
+            tokenizer=lambda x : x.split(), stop_words=stop_words, vocabulary=vocab,
+            min_df=5, max_df=0.7
+        ).fit(text)
+        tf_vocab = vectorizer.vocabulary_
+    X = vectorizer.transform(text)
     print("Vocabulary size:", len(tf_vocab))
     with open(os.path.join(cache_dir, f"vocab_{lang}.txt"), "w") as f:
         f.write(" ".join(sorted(tf_vocab.keys())))

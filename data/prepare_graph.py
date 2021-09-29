@@ -97,8 +97,11 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     return D, D_feat, D_label, D_mask, doc_content, doc_labels
 
 def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "cache/"):
+    label_descriptions = [e for x in data_utils.IPC_SUBCLASS.values() for e in x]
+    label_descriptions = utils.normalize_text(label_descriptions, lang="en", cache_dir="./")
+    _, vocab = utils.get_tfidf_score(label_descriptions, lang="en", cache_dir="./")
     doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
-    DvsW_weight, W = utils.get_tfidf_score(doc_content, lang=lang, cache_dir=cache_dir)
+    DvsW_weight, W = utils.get_tfidf_score(doc_content, vocab=vocab, lang=lang, cache_dir=cache_dir)
     sorted_words = sorted(W, key=W.get)
     W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content, cache_dir=cache_dir)
     WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
@@ -132,6 +135,8 @@ def get_document_label(D_feat: str, doc_labels: List[List[str]]):
         DvsL_weight.append(dist)
     L_feat = np.vstack(L_feat).astype(np.float32)
     DvsL_weight = normalize(np.vstack(DvsL_weight).T)
+    DvsL_weight.partition(200, axis=1)
+    DvsL_weight = DvsL_weight[:, :200]
     return L, L_feat, DvsL_weight
 
 def get_document_cluster(D_feat: List, n_clusters: int = 100):

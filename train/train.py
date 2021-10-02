@@ -1,5 +1,6 @@
 import os
 import logging
+from collections import defaultdict
 from tqdm import trange
 from typing import Dict
 
@@ -14,20 +15,27 @@ from .strategy import *
 from .metrics import compute_metrics
 
 def run(
-        model: nn.Module, graph: DGLGraph, target_node: str, 
+        model: nn.Module, graph: DGLGraph, dataset, 
         lr: float, epochs: int = 500, threshold: float = 0.5, strategy_name: str = None, 
         writer: SummaryWriter = None, exp_name: str = "test"
     ):
+    target_node = dataset.predict_category
     train_mask = graph.nodes[target_node].data["train_mask"]
     val_mask = graph.nodes[target_node].data["val_mask"]
     test_mask = graph.nodes[target_node].data["test_mask"]
     labels = graph.nodes[target_node].data["label"]
     inputs = graph.ndata["feat"]
+
     edge_weight = {} if not "weight" in graph.edata else {k[1]: v for k, v in graph.edata["weight"].items()}
+    hier_indices = []
+    for i in range(4):
+        hier_dict = defaultdict(list)
+        for k, v in dataset.label_encoder.items():
+            hier_dict[k[:i+1]].append(v)
+        hier_indices.append(hier_dict)
 
     # settings
-    criterion = nn.BCEWithLogitsLoss()
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.05)
     lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda it : lr * 0.9 ** (it - 1))
     use_active_learning = True if strategy_name is not None else False
     if use_active_learning:
@@ -50,13 +58,13 @@ def run(
     val_scores = predict(
         model, graph, target_node, inputs, edge_weight, labels, val_mask, threshold=threshold
     )
-    log(writer, train_scores, 0, type="train")
-    log(writer, val_scores, 0, type="val")
-    print(val_scores)
+    log(writer, train_scores, iteration, type="train")
+    log(writer, val_scores, iteration, type="val")
 
     # training
-    # excel_writer = pd.ExcelWriter("./tmp/probs.xlsx")
     init_state = model.state_dict()
+    excel_writer = pd.ExcelWriter("probs.xlsx")
+    alpha = 0.5
     for rnd in range(n_rounds):
         num_samples = query_train_mask.sum()
         logging.info(f"START ROUND {rnd + 1}: {num_samples} samples")
@@ -66,8 +74,27 @@ def run(
             iteration += 1
             model.train()
             optimizer.zero_grad()
-            features, logits = model(graph, inputs, target_node, edge_weight=edge_weight, return_features=True)
-            loss = criterion(logits[query_train_mask], labels[query_train_mask].type_as(logits))
+            features, logits = model(
+                graph, inputs, target_node, edge_weight=edge_weight, return_features=True
+            )
+            probs = torch.sigmoid(logits)
+            main_loss = nn.BCEWithLogitsLoss()(
+                logits[query_train_mask], labels[query_train_mask].type_as(logits)
+            )
+            hier_loss = None
+            for aux_idx in hier_indices:
+                aux_logits, aux_labels = [], []
+                for k, v in aux_idx.items():
+                    aux_logits.append(torch.max(logits[:, v], dim=1).values.reshape((-1, 1)))
+                    aux_labels.append(torch.max(labels[:, v], dim=1).values.reshape((-1, 1)))
+                aux_logits = torch.cat(aux_logits, dim=1)
+                aux_labels = torch.cat(aux_labels, dim=1)
+                aux_loss = nn.BCEWithLogitsLoss()(
+                    aux_logits[query_train_mask], aux_labels[query_train_mask].type_as(aux_logits)
+                )
+                hier_loss = aux_loss if hier_loss is None else hier_loss + aux_loss
+
+            loss = alpha * main_loss + (1 - alpha) * hier_loss
             loss.backward()
             optimizer.step()
             pbar.set_postfix(loss=loss.item(), lr="{:.1e}".format(lr_scheduler.get_last_lr()[0]))
@@ -91,14 +118,12 @@ def run(
 
         # choose next samples for the next round (except the last)
         if use_active_learning and rnd != (n_rounds - 1):
-            probs = torch.sigmoid(logits.detach().cpu())
-            query_train_mask = strategy.query(probs, labels.cpu(), features=features.detach().cpu())
-            # query_train_mask = strategy.query(probs, labels, features=inputs[target_node].cpu())
-            # if rnd < 10:
-            #     pd.DataFrame(probs.numpy()).to_excel(excel_writer, sheet_name=f"Round{rnd+1}")
+            query_train_mask = strategy.query(probs.detach().cpu(), labels.cpu(), features=features.detach().cpu())
+
+    pd.DataFrame(probs.detach().cpu().numpy()).sample(100).to_excel(excel_writer, sheet_name="prob")
+    excel_writer.close()
 
     # inference at the last round
-    # excel_writer.close()
     print("**** TEST ****")
     test_scores = predict(
         model, graph, target_node, inputs, edge_weight, labels, test_mask, threshold=threshold

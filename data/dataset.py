@@ -10,20 +10,22 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 class PatentClassificationDataset:
     def __init__(self, predict_category: str):
         self.predict_category = predict_category
-        self.nodes_encoder = {}
+        self.node_encoder = {}
         self.num_nodes_dict = {}
         self.data_dict = {}
         self.nodes, self.edges = defaultdict(lambda: {}), defaultdict(lambda: {})
 
+    def add_labels(self, labels, encoder: Dict) -> None:
+        self.label_encoder = encoder
+        self.nodes[self.predict_category]["label"] = labels
+        self.num_classes = labels.shape[1]
+
     def add_nodes(self, ntype: str, encoder: Dict[str, int], feat, **kwargs) -> None:
         self.num_nodes_dict[ntype] = len(encoder)
-        self.nodes_encoder[ntype] = encoder
+        self.node_encoder[ntype] = encoder
         self.nodes[ntype]["feat"] = feat
-        if ntype == self.predict_category:
-            for dtype in ("train", "val", "test"):
-                self.nodes[ntype][dtype + "_mask"] = kwargs.pop(dtype + "_mask")
-            self.nodes[ntype]["label"] = kwargs.pop("label")
-            self.num_classes = self.nodes[ntype]["label"].shape[1]
+        for key, value in kwargs.items():
+            self.nodes[ntype][key] = value
 
     def add_edges(self, etype: Tuple[str, str, str], edges: Tuple[Iterable[int], Iterable[int]], weight = None) -> None:
         assert len(edges[0]) == len(weight), f"Edge connections {len(edges[0])} != weight {len(weight)}"

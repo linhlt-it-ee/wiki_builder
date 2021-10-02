@@ -12,25 +12,26 @@ from sklearn.preprocessing import normalize
 
 import utils
 import data.utils as data_utils
-import data.dataset as dataset
+from data.dataset import PatentClassificationDataset
 
 
-def prepare_graph(
+def prepare_dataset(
         doc_path: str,
         cache_dir: str, 
         feature_type: List[str], 
         lang: str = "en",
         par_num: List[int] = None, 
         n_clusters: int = None,
-    ) -> Tuple[DGLGraph, str, int]:
+    ) -> PatentClassificationDataset:
     os.makedirs(cache_dir, exist_ok=True)
-    ds = dataset.PatentClassificationDataset(predict_category="doc")
+    ds = PatentClassificationDataset(predict_category="doc")
 
     cache_path = os.path.join(cache_dir, "cached_doc.pck")
-    D_encoder, D_feat, D_label, D_mask, doc_content, doc_labels = utils.cache_to_path(
+    D_encoder, D_feat, (D_label, label_encoder), (D_aux_label, aux_label_encoder), D_mask, doc_content, doc_labels = utils.cache_to_path(
         cache_path, get_document, doc_path, lang=lang, cache_dir=cache_dir
     )
-    ds.add_nodes("doc", D_encoder, feat=D_feat, label=D_label, **D_mask)
+    ds.add_nodes("doc", D_encoder, feat=D_feat, **D_mask)
+    ds.add_labels(D_label, label_encoder)
 
     if "word" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_word.pck")
@@ -72,18 +73,20 @@ def prepare_graph(
         ds.add_edges(("concept", "concept#is-child", "concept"), CvsC)
         ds.add_edges(("doc", "concept#have", "concept"), DvsC)
 
-    return ds.get_graph(), ds.predict_category, ds.num_classes
+    return ds
  
 def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     docs = {doc["id"]: doc for doc in utils.load_ndjson(doc_path)}
     D = {did: id for id, did in enumerate(sorted(docs.keys()))}
     D_mask = {dtype: [] for dtype in ("train_mask", "val_mask", "test_mask")}
     doc_content, doc_labels = [], []
+    doc_aux_labels = []
     for did in tqdm(D, desc="Loading documents"):
         x = docs[did]
         content = " ".join((x["abstract"], x["title"], x["claim_1"], x["description"]))
         doc_content.append(content[:5000])
         doc_labels.append(x["labels"])
+        doc_aux_labels.append([e[:3] for e in x["labels"]])
         D_mask["train_mask"].append(x["is_train"])
         D_mask["val_mask"].append(x["is_dev"])
         D_mask["test_mask"].append(x["is_test"])
@@ -93,8 +96,7 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     utils.dump_json(label_encoder, os.path.join(cache_dir, "label_encoder.json"))
     D_feat = utils.get_sbert_embedding(doc_content, lang=lang)
     D_label = utils.get_multihot_encoding(doc_labels, label_encoder)
-
-    return D, D_feat, D_label, D_mask, doc_content, doc_labels
+    return D, D_feat, (D_label, label_encoder), D_mask, doc_content, doc_labels
 
 def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "cache/"):
     label_descriptions = [e for x in data_utils.IPC_SUBCLASS.values() for e in x]

@@ -23,7 +23,7 @@ if __name__ == "__main__":
         sync_tensorboard=True,
     )
 
-    graph, target_node, n_classes = prepare_graph(
+    dataset = prepare_dataset(
         args.data_path,
         args.cache_dir, 
         feature_type=args.feature_type.split(","), 
@@ -31,11 +31,12 @@ if __name__ == "__main__":
         par_num=list(map(int, args.par_num.split(","))), 
         n_clusters=args.n_clusters,
     )
+    graph = dataset.get_graph()
     logging.info(graph)
     model = prepare_model(
         args.model_name, 
-        graph, 
-        n_classes, 
+        graph,
+        n_classes=dataset.num_classes,
         hidden_feat=args.hidden_feat, 
         n_layers=args.n_layers, 
         aggregate=args.aggregate, 
@@ -43,5 +44,5 @@ if __name__ == "__main__":
         multihead_aggregate=args.multihead_aggregate, 
         dropout=args.dropout
     )
-    model = run(model, graph, target_node, args.lr, args.epochs, args.threshold, args.strategy_name, writer=SummaryWriter(), exp_name=args.exp_name)
+    model = run(model, graph, dataset, args.lr, args.epochs, args.threshold, args.strategy_name, writer=SummaryWriter(), exp_name=args.exp_name)
     logger.finish()

@@ -1,0 +1,15 @@
+dgl==0.7.1
+torch==1.8.0
+transformers==4.11.3
+sentence-transformers
+torchmetrics
+fugashi
+gensim
+networkx
+tqdm
+nltk
+numpy
+scikit-learn
+scipy
+pandas
+wandb

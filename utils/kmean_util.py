@@ -1,19 +1,22 @@
 from typing import List
 
 from sklearn.cluster import KMeans
-from sklearn.mixture import GaussianMixture
 from sklearn.metrics import pairwise_distances
+from sklearn.mixture import GaussianMixture
+
 
 def get_kmean_matrix(embeddings: List, n_clusters: int = 100, is_gmm: bool = False):
     if not is_gmm:
         model = KMeans(n_clusters=n_clusters).fit(embeddings)
         centers = model.cluster_centers_
     else:
-        model = GaussianMixture(n_components=n_clusters, covariance_type="full",
-                              random_state=0).fit(embeddings)
+        model = GaussianMixture(
+            n_components=n_clusters, covariance_type="full", random_state=0
+        ).fit(embeddings)
         centers = model.means_
-   
+
     return centers
+
 
 """
 from sklearn.decomposition import PCA
@@ -29,7 +32,7 @@ exit()
 """
 
 if __name__ == "__main__":
-    corpus = []     # bert embedding
+    corpus = []  # bert embedding
     kmean_matrix, centers, cluster_assignments = get_kmean_matrix(corpus, num_cluster_list=[72])
     # cosine_scores = np.array(torch.cdist(torch.tensor(centers), torch.tensor(corpus)))
     # centers_idx = [np.argmin(x) for x in cosine_scores]

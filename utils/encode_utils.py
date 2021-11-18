@@ -1,17 +1,17 @@
-import os
 import logging
-from typing import List, Dict
+import os
+from typing import Dict, List
 
-import nltk
-import torch
-import numpy as np
 import fugashi
 import gensim.downloader
+import nltk
+import numpy as np
+import torch
 from gensim.models import Word2Vec
-from tqdm import tqdm
-from nltk.stem import porter, WordNetLemmatizer
-from transformers import AutoModel, AutoTokenizer
+from nltk.stem import WordNetLemmatizer, porter
 from sklearn.preprocessing import MultiLabelBinarizer
+from tqdm import tqdm
+from transformers import AutoModel, AutoTokenizer
 
 from . import file_utils
 
@@ -22,6 +22,7 @@ def encode_multihot(labels):
     mlb = MultiLabelBinarizer()
     res = mlb.fit_transform(labels)
     return res, list(mlb.classes_)
+
 
 def normalizer(lang: str = "en"):
     if lang == "en":
@@ -42,14 +43,16 @@ def normalizer(lang: str = "en"):
             words = [str(w.feature.lemma) for w in tagger(doc)]
             words = [w for w in words if w.isalpha() and w != "None"]
         return " ".join(words).lower()
-        
+
     return fn
+
 
 def normalize_text(doc_content_list: List[str], lang: str = "en", cache_dir="./tmp"):
     transformer = normalizer(lang=lang)
     res = [transformer(doc) for doc in tqdm(doc_content_list, desc="Normalizing")]
     file_utils.dump(res, os.path.join(cache_dir, f"normalized_text_{lang}.pck"))
     return res
+
 
 def encode_bert(text: List[str], max_length: int = 64, lang: str = "en"):
     if lang == "en":
@@ -65,17 +68,22 @@ def encode_bert(text: List[str], max_length: int = 64, lang: str = "en"):
     res = []
     for batch_text in yield_batch(text):
         inputs = tokenizer.batch_encode_plus(
-            batch_text, padding="max_length", truncation=True, 
-            max_length=max_length, return_tensors="pt"
+            batch_text,
+            padding="max_length",
+            truncation=True,
+            max_length=max_length,
+            return_tensors="pt",
         ).to(device)
         hidden_state = model(**inputs).last_hidden_state.detach().cpu().numpy()
-        embedding = np.take(hidden_state, indices=0, axis=1)    # pool first
+        embedding = np.take(hidden_state, indices=0, axis=1)  # pool first
         res.append(embedding)
 
     return np.vstack(res)
 
+
 def encode_sbert(text: List[str], lang: str = "en"):
     from sentence_transformers import SentenceTransformer
+
     if lang == "en":
         pretrained_model_name = "sentence-transformers/all-distilroberta-v1"
     else:
@@ -88,6 +96,7 @@ def encode_sbert(text: List[str], lang: str = "en"):
         res.append(embedding)
     return np.vstack(res)
 
+
 def yield_batch(arr: List):
     arr_len = len(arr)
     pbar = tqdm(total=arr_len, desc="Batching")
@@ -98,10 +107,11 @@ def yield_batch(arr: List):
         pbar.update(batch_size)
         start_idx += batch_size
 
+
 def encode_word(words: List[str], corpus: List[str], cache_dir="./tmp"):
     sentences = [sent.split() for sent in corpus]
     model_path = os.path.join(cache_dir, "word2vec.model")
-    if not os.path.exists(model_path): 
+    if not os.path.exists(model_path):
         # same dimension as bert embedding
         model = Word2Vec(sentences=sentences, vector_size=768, window=5, workers=4)
         model.save(model_path)

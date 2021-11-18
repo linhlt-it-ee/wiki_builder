@@ -1,24 +1,28 @@
 import os
 from collections import defaultdict
-from tqdm import trange
 from typing import Dict
 
-import torch
 import pandas as pd
+import torch
 import torch.nn as nn
 import torch.optim as optim
 from dgl import DGLGraph
+from tqdm import trange
 
-from .strategy import *
 from .metrics import compute_metrics
+from .strategy import *
 
 
 def train(
-        model: nn.Module, graph, dataset,
-        strategy_name: str = None, 
-        lr: float = 0.05, epochs: int = 500, threshold: float = 0.5, 
-        run = None,
-    ):
+    model: nn.Module,
+    graph,
+    dataset,
+    strategy_name: str = None,
+    lr: float = 0.05,
+    epochs: int = 500,
+    threshold: float = 0.5,
+    run=None,
+):
     target_node = dataset.predict_category
     graph = dataset.get_graph()
 
@@ -27,11 +31,13 @@ def train(
     test_mask = graph.nodes[target_node].data["test_mask"]
     labels = graph.nodes[target_node].data["label"]
     inputs = graph.ndata["feat"]
-    edge_weight = {} if not "weight" in graph.edata else {k[1]: v for k, v in graph.edata["weight"].items()}
+    edge_weight = (
+        {} if not "weight" in graph.edata else {k[1]: v for k, v in graph.edata["weight"].items()}
+    )
 
     # settings
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.05)
-    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda it : lr * 0.9 ** (it - 1))
+    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda it: lr * 0.9 ** (it - 1))
     use_active_learning = True if strategy_name is not None else False
     if use_active_learning:
         n_rounds = 100
@@ -44,7 +50,7 @@ def train(
         round_epoch = epochs
         query_train_mask = train_mask
         update_freq = 100
-    
+
     # validation at the first round
     iteration = 0
     train_scores = predict(
@@ -82,10 +88,24 @@ def train(
             # validation
             if (epoch + 1) % update_freq == 0:
                 train_scores = predict(
-                    model, graph, target_node, inputs, edge_weight, labels, train_mask, threshold=threshold
+                    model,
+                    graph,
+                    target_node,
+                    inputs,
+                    edge_weight,
+                    labels,
+                    train_mask,
+                    threshold=threshold,
                 )
                 val_scores = predict(
-                    model, graph, target_node, inputs, edge_weight, labels, val_mask, threshold=threshold
+                    model,
+                    graph,
+                    target_node,
+                    inputs,
+                    edge_weight,
+                    labels,
+                    val_mask,
+                    threshold=threshold,
                 )
                 log(run, train_scores, type="train")
                 log(run, val_scores, type="val")
@@ -97,7 +117,9 @@ def train(
         # choose next samples for the next round (except the last)
         if use_active_learning and rnd != (n_rounds - 1):
             probs = torch.sigmoid(logits)
-            query_train_mask = strategy.query(probs.detach().cpu(), labels.cpu(), features=features.detach().cpu())
+            query_train_mask = strategy.query(
+                probs.detach().cpu(), labels.cpu(), features=features.detach().cpu()
+            )
 
     # inference at the last round
     print("**** TEST ****")
@@ -109,15 +131,20 @@ def train(
     os.makedirs("results", exist_ok=True)
     report = pd.Series(test_scores).sort_index() * 100
     report.to_csv("results.csv", float_format="%.2f")
-    
+
     return model
 
+
 def predict(
-        model: nn.Module, graph: DGLGraph, target_node: str,
-        inputs: torch.Tensor, edge_weight: torch.Tensor,
-        labels: torch.Tensor, mask: torch.BoolTensor,
-        threshold: float = 0.5
-    ):
+    model: nn.Module,
+    graph: DGLGraph,
+    target_node: str,
+    inputs: torch.Tensor,
+    edge_weight: torch.Tensor,
+    labels: torch.Tensor,
+    mask: torch.BoolTensor,
+    threshold: float = 0.5,
+):
     model.eval()
     with torch.no_grad():
         logits = model(graph, inputs, target_node, edge_weight=edge_weight)
@@ -125,6 +152,7 @@ def predict(
         y_prob = torch.sigmoid(logits[mask]).cpu()
         scores = compute_metrics(y_true, y_prob, threshold=threshold)
     return scores
+
 
 def log(run, scores: Dict, type: str = "train"):
     for k, v in scores.items():

@@ -1,8 +1,8 @@
 from collections import defaultdict
-from typing import Dict, Iterable, Tuple, List
+from typing import Dict, Iterable, List, Tuple
 
-import torch
 import dgl
+import torch
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -22,7 +22,7 @@ class PatentClassificationDataset:
         for ntype in self.nodes:
             res[ntype] = len(self.nodes[ntype]["feat"])
         return res
-        
+
     def get_graph(self) -> dgl.DGLGraph:
         num_nodes_dict = self.get_num_nodes_dict()
         for ntype, num_nodes in num_nodes_dict.items():
@@ -48,14 +48,19 @@ class PatentClassificationDataset:
         for key, value in kwargs.items():
             self.nodes[ntype][key] = value
 
-    def add_edges(self, etype: Tuple[str, str, str], edges: Tuple[Iterable[int], Iterable[int]], weight = None) -> None:
-        assert len(edges[0]) == len(weight), f"Edge connections {len(edges[0])} != weight {len(weight)}"
+    def add_edges(
+        self, etype: Tuple[str, str, str], edges: Tuple[Iterable[int], Iterable[int]], weight=None
+    ) -> None:
+        assert len(edges[0]) == len(
+            weight
+        ), f"Edge connections {len(edges[0])} != weight {len(weight)}"
         src, etype, dst = etype
         self.data_dict[(src, etype, dst)] = edges
         self.edges[etype]["weight"] = weight
         if src != dst:
             self.data_dict[(dst, "rev-" + etype, src)] = edges[::-1]
             self.edges["rev-" + etype]["weight"] = weight
+
 
 def _convert2tensor(array):
     return torch.tensor(array)

@@ -1,25 +1,28 @@
 import os
-from typing import List
-from math import log
 from collections import defaultdict
+from math import log
+from typing import List
 
 import numpy as np
-from tqdm import tqdm
 from sklearn.feature_extraction.text import TfidfVectorizer
+from tqdm import tqdm
+
 
 def get_tfidf_score(text: List[str], vocab: List[str] = None, lang: str = "en", cache_dir="./tmp"):
     stop_words = None if lang != "en" else "english"
     vectorizer = TfidfVectorizer(
-        tokenizer=lambda x : x.split(), stop_words=stop_words, vocabulary=None,
-        min_df=5, max_df=0.7
+        tokenizer=lambda x: x.split(), stop_words=stop_words, vocabulary=None, min_df=5, max_df=0.7
     ).fit(text)
     tf_vocab = vectorizer.vocabulary_
     if vocab is not None:
         vocab = list(set(vocab).intersection(tf_vocab.keys()))
         assert len(vocab) != 0, "Empty vocabulary"
         vectorizer = TfidfVectorizer(
-            tokenizer=lambda x : x.split(), stop_words=stop_words, vocabulary=vocab,
-            min_df=5, max_df=0.7
+            tokenizer=lambda x: x.split(),
+            stop_words=stop_words,
+            vocabulary=vocab,
+            min_df=5,
+            max_df=0.7,
         ).fit(text)
         tf_vocab = vectorizer.vocabulary_
     X = vectorizer.transform(text)
@@ -28,8 +31,9 @@ def get_tfidf_score(text: List[str], vocab: List[str] = None, lang: str = "en", 
         f.write(" ".join(sorted(tf_vocab.keys())))
     return X, tf_vocab
 
+
 def get_pmi(doc_content_list: List[str], vocab: List[str], window_size: int = 20):
-    vocab = {w : i for i, w in enumerate(vocab)}
+    vocab = {w: i for i, w in enumerate(vocab)}
     doc_word_list = [[w for w in x.split() if w in vocab] for x in doc_content_list]
     windows = []
     for words in doc_word_list:
@@ -38,15 +42,15 @@ def get_pmi(doc_content_list: List[str], vocab: List[str], window_size: int = 20
             windows.append(list(set(words)))
         else:
             for j in range(length - window_size + 1):
-                window = list(set(words[j: j + window_size]))
+                window = list(set(words[j : j + window_size]))
                 windows.append(window)
 
-    word_window_freq = defaultdict(lambda : 0)
+    word_window_freq = defaultdict(lambda: 0)
     for window in tqdm(windows, desc="Word frequency (windows)"):
         for w in window:
             word_window_freq[w] += 1
 
-    word_pair_count = defaultdict(lambda : 0)
+    word_pair_count = defaultdict(lambda: 0)
     for window in tqdm(windows, desc="Word pairs frequency (windows)"):
         for i in range(1, len(window)):
             for j in range(i):
@@ -68,11 +72,12 @@ def get_pmi(doc_content_list: List[str], vocab: List[str], window_size: int = 20
 
     return pmi_word_word
 
+
 if __name__ == "__main__":
     doc_content_list = []
     prj_path = "../temp/"
     dataset = "R8"
-    f = open(prj_path + dataset + '.clean.txt', 'r')
+    f = open(prj_path + dataset + ".clean.txt", "r")
     lines = f.readlines()
     for line in lines:
         doc_content_list.append(line.strip())

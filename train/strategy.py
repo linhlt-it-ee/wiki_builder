@@ -1,8 +1,10 @@
 import copy
-import torch
+
 import numpy as np
+import torch
 from sklearn.metrics import pairwise_distances
 from torchmetrics.classification import F1
+
 
 class Strategy:
     def __init__(self, unlabel_mask: torch.BoolTensor, n_rounds: int = 100):
@@ -28,75 +30,63 @@ class Strategy:
     def query(self, probs: torch.Tensor = None, features: torch.Tensor = None) -> torch.BoolTensor:
         pass
 
+
 class RandomSampling(Strategy):
     def query(
-        self,
-        probs: torch.Tensor = None, 
-        labels: torch.Tensor = None, 
-        features: torch.Tensor = None
+        self, probs: torch.Tensor = None, labels: torch.Tensor = None, features: torch.Tensor = None
     ) -> torch.BoolTensor:
         return super().random_mask()
 
+
 class LeastConfidence(Strategy):
     def query(
-        self,
-        probs: torch.Tensor = None, 
-        labels: torch.Tensor = None, 
-        features: torch.Tensor = None
+        self, probs: torch.Tensor = None, labels: torch.Tensor = None, features: torch.Tensor = None
     ) -> torch.BoolTensor:
         confidence = probs[self.unlabel_mask].max(dim=1).values
         unlabel_idx = torch.arange(self.n_samples)[self.unlabel_mask]
-        select_idx = unlabel_idx[confidence.sort().indices[:self.n_samples_per_round]]
+        select_idx = unlabel_idx[confidence.sort().indices[: self.n_samples_per_round]]
         self.update(select_idx)
         return self.train_mask
 
+
 class EntropySampling(Strategy):
     def query(
-        self,
-        probs: torch.Tensor = None, 
-        labels: torch.Tensor = None, 
-        features: torch.Tensor = None
+        self, probs: torch.Tensor = None, labels: torch.Tensor = None, features: torch.Tensor = None
     ) -> torch.BoolTensor:
         p = probs[self.unlabel_mask]
         neg_entropy = (p * p.log()).sum(dim=1)
         unlabel_idx = torch.arange(self.n_samples)[self.unlabel_mask]
-        select_idx = unlabel_idx[neg_entropy.sort().indices[:self.n_samples_per_round]]
+        select_idx = unlabel_idx[neg_entropy.sort().indices[: self.n_samples_per_round]]
         self.update(select_idx)
         return self.train_mask
 
+
 class MarginSampling(Strategy):
     def query(
-        self,
-        probs: torch.Tensor = None, 
-        labels: torch.Tensor = None, 
-        features: torch.Tensor = None
+        self, probs: torch.Tensor = None, labels: torch.Tensor = None, features: torch.Tensor = None
     ) -> torch.BoolTensor:
         top2_p = probs[self.unlabel_mask].sort(dim=1).values[:, -2:]
         margin = top2_p[:, 1] - top2_p[:, 0]
         unlabel_idx = torch.arange(self.n_samples)[self.unlabel_mask]
-        select_idx = unlabel_idx[margin.sort().indices[:self.n_samples_per_round]]
+        select_idx = unlabel_idx[margin.sort().indices[: self.n_samples_per_round]]
         self.update(select_idx)
         return self.train_mask
+
 
 class MarginSampling2(Strategy):
     def query(
-        self,
-        probs: torch.Tensor = None, 
-        labels: torch.Tensor = None, 
-        features: torch.Tensor = None
+        self, probs: torch.Tensor = None, labels: torch.Tensor = None, features: torch.Tensor = None
     ) -> torch.BoolTensor:
         margin = torch.abs(probs[self.unlabel_mask] - 0.5).min(dim=1).values
         unlabel_idx = torch.arange(self.n_samples)[self.unlabel_mask]
-        select_idx = unlabel_idx[margin.sort().indices[:self.n_samples_per_round]]
+        select_idx = unlabel_idx[margin.sort().indices[: self.n_samples_per_round]]
         self.update(select_idx)
         return self.train_mask
 
+
 class KCenterGreedy(Strategy):
     def query(
-        self,
-        probs: torch.Tensor = None, 
-        labels: torch.Tensor = None, 
-        features: torch.Tensor = None
+        self, probs: torch.Tensor = None, labels: torch.Tensor = None, features: torch.Tensor = None
     ) -> torch.BoolTensor:
         features = features.numpy()
         dist = pairwise_distances(features, features, metric="l2")
@@ -112,6 +102,7 @@ class KCenterGreedy(Strategy):
             center_dist = np.append(center_dist, dist[self.unlabel_mask, idx][:, None], axis=1)
         return self.train_mask
 
+
 class FeatureMatching(Strategy):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -119,13 +110,12 @@ class FeatureMatching(Strategy):
         self.out = []
 
     def query(
-        self,
-        probs: torch.Tensor = None, 
-        labels: torch.Tensor = None, 
-        features: torch.Tensor = None
+        self, probs: torch.Tensor = None, labels: torch.Tensor = None, features: torch.Tensor = None
     ) -> torch.BoolTensor:
         if not self.groups:
-            train_mask, unlabel_mask = copy.deepcopy(self.train_mask), copy.deepcopy(self.unlabel_mask)
+            train_mask, unlabel_mask = copy.deepcopy(self.train_mask), copy.deepcopy(
+                self.unlabel_mask
+            )
             for _ in range(self.n_rounds - 1):
                 random_idx = self._random_idx()
                 self.groups.append(random_idx)
@@ -145,11 +135,15 @@ class FeatureMatching(Strategy):
         self.update(self.groups[min_idx])
         return self.train_mask
 
+
 def prepare_strategy(strategy_name: str, unlabel_mask: torch.BoolTensor, n_rounds: int = 100):
     strategy_dict = {
-        "random": RandomSampling, "lc": LeastConfidence,
-        "margin": MarginSampling, "margin2": MarginSampling2,
-        "entropy": EntropySampling, "kcenter": KCenterGreedy,
+        "random": RandomSampling,
+        "lc": LeastConfidence,
+        "margin": MarginSampling,
+        "margin2": MarginSampling2,
+        "entropy": EntropySampling,
+        "kcenter": KCenterGreedy,
         "fm": FeatureMatching,
     }
     return strategy_dict[strategy_name](unlabel_mask, n_rounds)

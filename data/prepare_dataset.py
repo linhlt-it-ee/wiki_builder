@@ -1,35 +1,39 @@
 import os
 import sys
+
 sys.path.append("../")
-from typing import Tuple, List, Dict
 from collections import defaultdict
+from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
-from tqdm import tqdm
 from dgl import DGLGraph
 from sklearn.preprocessing import normalize
+from tqdm import tqdm
 
-import utils
 import data.utils as data_utils
+import utils
 from data.dataset import PatentClassificationDataset
 
 
 def prepare_dataset(
-        doc_path: str,
-        cache_dir: str, 
-        feature_type: List[str], 
-        lang: str = "en",
-        par_num: List[int] = None, 
-        n_clusters: int = None,
-    ) -> PatentClassificationDataset:
+    doc_path: str,
+    cache_dir: str,
+    feature_type: List[str],
+    lang: str = "en",
+    par_num: List[int] = None,
+    n_clusters: int = None,
+) -> PatentClassificationDataset:
     os.makedirs(cache_dir, exist_ok=True)
     ds = PatentClassificationDataset(predict_category="doc")
 
     cache_path = os.path.join(cache_dir, "cached_doc.pck")
     D, D_feat, (classes, D_label), D_mask = utils.cache_to_path(
-        cache_path, get_document,
-        doc_path, lang=lang, cache_dir=cache_dir,
+        cache_path,
+        get_document,
+        doc_path,
+        lang=lang,
+        cache_dir=cache_dir,
     )
     ds.add_nodes("doc", D, feat=D_feat, **D_mask)
     ds.add_labels(classes, D_label)
@@ -37,8 +41,12 @@ def prepare_dataset(
     if "word" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_word.pck")
         W, W_feat, DvsW_weight, WvsW_weight = utils.cache_to_path(
-            cache_path, get_document_word,
-            doc_path, D, lang=lang, cache_dir=cache_dir,
+            cache_path,
+            get_document_word,
+            doc_path,
+            D,
+            lang=lang,
+            cache_dir=cache_dir,
         )
         DvsW = DvsW_weight.nonzero()
         WvsW = WvsW_weight.nonzero()
@@ -49,15 +57,19 @@ def prepare_dataset(
     if "cluster" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_cluster.pck")
         Cl, Cl_feat, DvsCl_weight, ClvsCl_weight = utils.cache_to_path(
-            cache_path, get_document_cluster,
-            D_feat, n_clusters=n_clusters,
+            cache_path,
+            get_document_cluster,
+            D_feat,
+            n_clusters=n_clusters,
         )
         DvsCl = DvsCl_weight.nonzero()
         ClvsCl = ClvsCl_weight.nonzero()
         ds.add_nodes("cluster", Cl, feat=Cl_feat)
-        ds.add_edges(("cluster", "cluster#distance", "cluster"), ClvsCl, weight=ClvsCl_weight[ClvsCl])
+        ds.add_edges(
+            ("cluster", "cluster#distance", "cluster"), ClvsCl, weight=ClvsCl_weight[ClvsCl]
+        )
         ds.add_edges(("doc", "cluster#form", "cluster"), DvsCl, weight=DvsCl_weight[DvsCl])
-        
+
     if "label" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_label.pck")
         L_encoder, L_feat, DvsL_weight = utils.cache_to_path(
@@ -70,14 +82,19 @@ def prepare_dataset(
     if "concept" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_concept.pck")
         C_encoder, C_feat, DvsC, CvsC = utils.cache_to_path(
-            cache_path, get_document_concept, D_encoder.values(), par_num=par_num, cache_dir=cache_dir
+            cache_path,
+            get_document_concept,
+            D_encoder.values(),
+            par_num=par_num,
+            cache_dir=cache_dir,
         )
         ds.add_nodes("concept", C_encoder, feat=C_feat)
         ds.add_edges(("concept", "concept#is-child", "concept"), CvsC)
         ds.add_edges(("doc", "concept#have", "concept"), DvsC)
 
     return ds
- 
+
+
 def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     docs = {doc["id"]: doc for doc in utils.load_ndjson(doc_path)}
     D = sorted(docs.keys())
@@ -95,6 +112,7 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     D_feat = utils.encode_sbert(doc_content, lang=lang)
     return D, D_feat, (classes, D_label), D_mask
 
+
 def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "cache/"):
     if lang == "en":
         class_desc = [e for x in data_utils.IPC_SUBCLASS.values() for e in x]
@@ -102,14 +120,17 @@ def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str =
         _, class_W = utils.get_tfidf_score(label_descriptions, lang="en")
     else:
         class_W = None
-    
+
     doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
-    DvsW_weight, W = utils.get_tfidf_score(doc_content, vocab=class_W, lang=lang, cache_dir=cache_dir)
+    DvsW_weight, W = utils.get_tfidf_score(
+        doc_content, vocab=class_W, lang=lang, cache_dir=cache_dir
+    )
     W_feat = utils.get_word_embedding(W, corpus=doc_content, cache_dir=cache_dir)
     WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
     DvsW_weight = DvsW_weight.toarray()
     WvsW_weight = np.tril(WvsW_weight)
     return W, W_feat, DvsW_weight, WvsW_weight
+
 
 def get_document_label(D_feat: str, doc_labels: List[List[str]]):
     tmp_path = "./label_embedding.pck"
@@ -141,12 +162,14 @@ def get_document_label(D_feat: str, doc_labels: List[List[str]]):
     DvsL_weight = DvsL_weight[:, :200]
     return L, L_feat, DvsL_weight
 
+
 def get_document_cluster(D_feat: List, n_clusters: int = 100):
     Cl = {str(id): id for id in range(n_clusters)}
     Cl_feat = utils.get_kmean_matrix(D_feat, n_clusters=n_clusters)
     ClvsCl_weight = np.tril(normalize(utils.pairwise_distances(Cl_feat, n_jobs=4)))
     DvsCl_weight = normalize(utils.pairwise_distances(D_feat, Cl_feat, n_jobs=4))
     return Cl, Cl_feat, DvsCl_weight, ClvsCl_weight
+
 
 def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str = "cache/"):
     # temporary files (for `concept` nodes)
@@ -156,7 +179,9 @@ def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str =
     doc_mention = utils.load_json(doc_mention_path)
     mention_concept = utils.load_json(mention_concept_path)
 
-    C, CvsC_edges, DvsC_edges = data_utils.create_document_concept_graph(D.keys(), doc_mention, mention_concept, par_num)
+    C, CvsC_edges, DvsC_edges = data_utils.create_document_concept_graph(
+        D.keys(), doc_mention, mention_concept, par_num
+    )
     C = {cid: id for id, cid in enumerate(sorted(C))}
     concepts = utils.load_json(concept_path)
     C_feat = [concepts[cid] for cid in C]

@@ -1,7 +1,8 @@
 import dgl.function as fn
+from dgl.base import DGLError
 from dgl.nn import GATConv
 from dgl.nn.functional import edge_softmax
-from dgl.base import DGLError
+
 
 class WeightedGATConv(GATConv):
     def forward(self, graph, feat, edge_weight=None, get_attention=False):
@@ -45,20 +46,22 @@ class WeightedGATConv(GATConv):
         with graph.local_scope():
             if not self._allow_zero_in_degree:
                 if (graph.in_degrees() == 0).any():
-                    raise DGLError('There are 0-in-degree nodes in the graph, '
-                                   'output for those nodes will be invalid. '
-                                   'This is harmful for some applications, '
-                                   'causing silent performance regression. '
-                                   'Adding self-loop on the input graph by '
-                                   'calling `g = dgl.add_self_loop(g)` will resolve '
-                                   'the issue. Setting ``allow_zero_in_degree`` '
-                                   'to be `True` when constructing this module will '
-                                   'suppress the check and let the code run.')
+                    raise DGLError(
+                        "There are 0-in-degree nodes in the graph, "
+                        "output for those nodes will be invalid. "
+                        "This is harmful for some applications, "
+                        "causing silent performance regression. "
+                        "Adding self-loop on the input graph by "
+                        "calling `g = dgl.add_self_loop(g)` will resolve "
+                        "the issue. Setting ``allow_zero_in_degree`` "
+                        "to be `True` when constructing this module will "
+                        "suppress the check and let the code run."
+                    )
 
             if isinstance(feat, tuple):
                 h_src = self.feat_drop(feat[0])
                 h_dst = self.feat_drop(feat[1])
-                if not hasattr(self, 'fc_src'):
+                if not hasattr(self, "fc_src"):
                     feat_src = self.fc(h_src).view(-1, self._num_heads, self._out_feats)
                     feat_dst = self.fc(h_dst).view(-1, self._num_heads, self._out_feats)
                 else:
@@ -66,10 +69,9 @@ class WeightedGATConv(GATConv):
                     feat_dst = self.fc_dst(h_dst).view(-1, self._num_heads, self._out_feats)
             else:
                 h_src = h_dst = self.feat_drop(feat)
-                feat_src = feat_dst = self.fc(h_src).view(
-                    -1, self._num_heads, self._out_feats)
+                feat_src = feat_dst = self.fc(h_src).view(-1, self._num_heads, self._out_feats)
                 if graph.is_block:
-                    feat_dst = feat_src[:graph.number_of_dst_nodes()]
+                    feat_dst = feat_src[: graph.number_of_dst_nodes()]
             # NOTE: GAT paper uses "first concatenation then linear projection"
             # to compute attention scores, while ours is "first projection then
             # addition", the two approaches are mathematically equivalent:
@@ -82,20 +84,20 @@ class WeightedGATConv(GATConv):
             # which further speeds up computation and saves memory footprint.
             el = (feat_src * self.attn_l).sum(dim=-1).unsqueeze(-1)
             er = (feat_dst * self.attn_r).sum(dim=-1).unsqueeze(-1)
-            graph.srcdata.update({'ft': feat_src, 'el': el})
-            graph.dstdata.update({'er': er})
+            graph.srcdata.update({"ft": feat_src, "el": el})
+            graph.dstdata.update({"er": er})
             # compute edge attention, el and er are a_l Wh_i and a_r Wh_j respectively.
-            graph.apply_edges(fn.u_add_v('el', 'er', 'e'))
-            e = self.leaky_relu(graph.edata.pop('e'))
+            graph.apply_edges(fn.u_add_v("el", "er", "e"))
+            e = self.leaky_relu(graph.edata.pop("e"))
             # compute softmax
-            graph.edata['a'] = self.attn_drop(edge_softmax(graph, e))
-            msg_fn = fn.u_mul_e('ft', 'a', 'm')
+            graph.edata["a"] = self.attn_drop(edge_softmax(graph, e))
+            msg_fn = fn.u_mul_e("ft", "a", "m")
             if edge_weight is not None:
                 assert edge_weight.shape[0] == graph.number_of_edges()
-                graph.edata['a'] += edge_weight.reshape(-1, 1, 1)
-            graph.update_all(fn.u_mul_e('ft', 'a', 'm'), fn.sum('m', 'ft'))
+                graph.edata["a"] += edge_weight.reshape(-1, 1, 1)
+            graph.update_all(fn.u_mul_e("ft", "a", "m"), fn.sum("m", "ft"))
 
-            rst = graph.dstdata['ft']
+            rst = graph.dstdata["ft"]
             # residual
             if self.res_fc is not None:
                 resval = self.res_fc(h_dst).view(h_dst.shape[0], self._num_heads, self._out_feats)
@@ -108,6 +110,6 @@ class WeightedGATConv(GATConv):
                 rst = self.activation(rst)
 
             if get_attention:
-                return rst, graph.edata['a']
+                return rst, graph.edata["a"]
             else:
                 return rst

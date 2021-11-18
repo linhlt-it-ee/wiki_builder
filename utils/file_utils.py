@@ -1,23 +1,27 @@
-import pickle
-import os
-import pandas as pd
-import logging
 import glob
 import json
+import logging
+import os
+import pickle
 from typing import Callable
+
+import pandas as pd
 from tqdm import tqdm
+
 
 def dump(obj, save_path: str):
     logging.debug(f"PATH {save_path}")
     if os.path.exists(save_path):
         os.remove(path=save_path)
-    output = open(save_path, 'wb')
-    pickle.dump(obj, output)    # protocol=pickle.HIGHEST_PROTOCOL
+    output = open(save_path, "wb")
+    pickle.dump(obj, output)  # protocol=pickle.HIGHEST_PROTOCOL
     output.close()
+
 
 def load(save_path: str):
     with open(save_path, "rb") as f:
         return pickle.load(f)
+
 
 def cache_to_path(path: str, fn: Callable, *args, **kwargs):
     if os.path.exists(path):
@@ -27,18 +31,22 @@ def cache_to_path(path: str, fn: Callable, *args, **kwargs):
         dump(res, path)
     return res
 
+
 def load_json(file_path):
     with open(file_path, "r") as f:
         return json.load(f)
 
+
 def dump_json(obj, save_path):
-    with open(save_path, 'w') as outfile:
+    with open(save_path, "w") as outfile:
         json.dump(obj, outfile, ensure_ascii=False, indent=2)
+
 
 def load_ndjson(file_path, pname: str = None):
     with open(file_path, "r") as f:
         for line in tqdm(f, desc=pname):
             yield json.loads(line)
+
 
 def get_claims(excel_file, sheet_name):  # get values by tag column
     xl = pd.ExcelFile(excel_file)
@@ -55,12 +63,14 @@ def get_claims(excel_file, sheet_name):  # get values by tag column
     all_claims = df["Claim 1"].values
     return all_claims
 
+
 def get_file_name_in_dir(folder_name, file_type):
-    file_names = glob.glob(folder_name + '/*.' + file_type)
+    file_names = glob.glob(folder_name + "/*." + file_type)
     file_names.sort(reverse=True)
     return file_names
 
+
 def get_file_name_in_dir_regex(folder_name, ending_txt):
-    file_names = glob.glob(folder_name + '/*' + ending_txt)
+    file_names = glob.glob(folder_name + "/*" + ending_txt)
     file_names.sort(reverse=True)
     return file_names

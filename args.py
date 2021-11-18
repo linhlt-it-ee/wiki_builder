@@ -12,7 +12,6 @@ def make_data_args():
 
 def make_run_args():
     parser = ArgumentParser()
-    parser.add_argument("--exp_name", type=str, help="Experiment name for logging")
     parser.add_argument("--seed", type=int, default=1, help="Random seed")
     parser.add_argument("--lang", type=str, default="en", help="Patent language")
     # graph args

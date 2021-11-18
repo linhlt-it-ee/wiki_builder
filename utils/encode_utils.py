@@ -11,11 +11,17 @@ from gensim.models import Word2Vec
 from tqdm import tqdm
 from nltk.stem import porter, WordNetLemmatizer
 from transformers import AutoModel, AutoTokenizer
+from sklearn.preprocessing import MultiLabelBinarizer
 
 from . import file_utils
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+
+def encode_multihot(labels):
+    mlb = MultiLabelBinarizer()
+    res = mlb.fit_transform(labels)
+    return res, list(mlb.classes_)
 
 def normalizer(lang: str = "en"):
     if lang == "en":
@@ -45,14 +51,7 @@ def normalize_text(doc_content_list: List[str], lang: str = "en", cache_dir="./t
     file_utils.dump(res, os.path.join(cache_dir, f"normalized_text_{lang}.pck"))
     return res
 
-def get_multihot_encoding(labels: List[List[str]], label_encoder: Dict[str, int]):
-    n_samples = len(labels)
-    embedding = np.zeros((n_samples, len(label_encoder)), dtype=bool)
-    slice_idx = np.array([[rid, label_encoder[e]] for rid, x in enumerate(labels) for e in x]).T.tolist()
-    embedding[slice_idx] = True
-    return embedding
-
-def get_bert_features(text: List[str], max_length: int = 64, lang: str = "en"):
+def encode_bert(text: List[str], max_length: int = 64, lang: str = "en"):
     if lang == "en":
         pretrained_model_name = "distilbert-base-uncased"
     elif lang == "ja":
@@ -75,7 +74,7 @@ def get_bert_features(text: List[str], max_length: int = 64, lang: str = "en"):
 
     return np.vstack(res)
 
-def get_sbert_embedding(text: List[str], lang: str = "en"):
+def encode_sbert(text: List[str], lang: str = "en"):
     from sentence_transformers import SentenceTransformer
     if lang == "en":
         pretrained_model_name = "sentence-transformers/all-distilroberta-v1"
@@ -99,7 +98,7 @@ def yield_batch(arr: List):
         pbar.update(batch_size)
         start_idx += batch_size
 
-def get_word_embedding(words: List[str], corpus: List[str], cache_dir="./tmp"):
+def encode_word(words: List[str], corpus: List[str], cache_dir="./tmp"):
     sentences = [sent.split() for sent in corpus]
     model_path = os.path.join(cache_dir, "word2vec.model")
     if not os.path.exists(model_path): 
@@ -110,15 +109,3 @@ def get_word_embedding(words: List[str], corpus: List[str], cache_dir="./tmp"):
         model = Word2Vec.load(model_path)
 
     return [model.wv[w] for w in tqdm(words, desc="Featurizing")]
-
-def get_phrase_embedding(phrases: List[str]):
-    model = gensim.downloader.load("glove-wiki-gigaword-300")
-    res = []
-    for p in tqdm(phrases, desc="Featurizing"):
-        embedding = np.array([model[w] for w in p.split() if w in model]).mean(axis=0)
-        if type(embedding) == np.float64:
-            embedding = np.zeros((300,))
-        embedding = np.concatenate((embedding, np.zeros(768 - 300)))
-        assert embedding.shape == (768,), f"{embedding.shape}"
-        res.append(embedding)
-    return res

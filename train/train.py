@@ -1,5 +1,4 @@
 import os
-import logging
 from collections import defaultdict
 from tqdm import trange
 from typing import Dict
@@ -8,31 +7,27 @@ import torch
 import pandas as pd
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 from dgl import DGLGraph
 
 from .strategy import *
 from .metrics import compute_metrics
 
-def run(
-        model: nn.Module, graph: DGLGraph, dataset, 
-        lr: float, epochs: int = 500, threshold: float = 0.5, strategy_name: str = None, 
-        writer: SummaryWriter = None, exp_name: str = "test"
+
+def train(
+        model: nn.Module, graph, dataset,
+        strategy_name: str = None, 
+        lr: float = 0.05, epochs: int = 500, threshold: float = 0.5, 
+        run = None,
     ):
     target_node = dataset.predict_category
+    graph = dataset.get_graph()
+
     train_mask = graph.nodes[target_node].data["train_mask"]
     val_mask = graph.nodes[target_node].data["val_mask"]
     test_mask = graph.nodes[target_node].data["test_mask"]
     labels = graph.nodes[target_node].data["label"]
     inputs = graph.ndata["feat"]
-
     edge_weight = {} if not "weight" in graph.edata else {k[1]: v for k, v in graph.edata["weight"].items()}
-    hier_indices = []
-    for i in range(4):
-        hier_dict = defaultdict(list)
-        for k, v in dataset.label_encoder.items():
-            hier_dict[k[:i+1]].append(v)
-        hier_indices.append(hier_dict)
 
     # settings
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.05)
@@ -58,16 +53,14 @@ def run(
     val_scores = predict(
         model, graph, target_node, inputs, edge_weight, labels, val_mask, threshold=threshold
     )
-    log(writer, train_scores, iteration, type="train")
-    log(writer, val_scores, iteration, type="val")
+    log(run, train_scores, type="train")
+    log(run, val_scores, type="val")
 
     # training
     init_state = model.state_dict()
-    excel_writer = pd.ExcelWriter("probs.xlsx")
-    alpha = 0.5
     for rnd in range(n_rounds):
         num_samples = query_train_mask.sum()
-        logging.info(f"START ROUND {rnd + 1}: {num_samples} samples")
+        print(f"===== START ROUND {rnd + 1}: {num_samples} samples =====")
         model.load_state_dict(init_state)
         pbar = trange(round_epoch, desc="Training")
         for epoch in pbar:
@@ -77,40 +70,25 @@ def run(
             features, logits = model(
                 graph, inputs, target_node, edge_weight=edge_weight, return_features=True
             )
-            probs = torch.sigmoid(logits)
-            main_loss = nn.BCEWithLogitsLoss()(
+            loss = nn.BCEWithLogitsLoss()(
                 logits[query_train_mask], labels[query_train_mask].type_as(logits)
             )
-            hier_loss = None
-            for aux_idx in hier_indices:
-                aux_logits, aux_labels = [], []
-                for k, v in aux_idx.items():
-                    aux_logits.append(torch.max(logits[:, v], dim=1).values.reshape((-1, 1)))
-                    aux_labels.append(torch.max(labels[:, v], dim=1).values.reshape((-1, 1)))
-                aux_logits = torch.cat(aux_logits, dim=1)
-                aux_labels = torch.cat(aux_labels, dim=1)
-                aux_loss = nn.BCEWithLogitsLoss()(
-                    aux_logits[query_train_mask], aux_labels[query_train_mask].type_as(aux_logits)
-                )
-                hier_loss = aux_loss if hier_loss is None else hier_loss + aux_loss
 
-            loss = alpha * main_loss + (1 - alpha) * hier_loss
             loss.backward()
             optimizer.step()
             pbar.set_postfix(loss=loss.item(), lr="{:.1e}".format(lr_scheduler.get_last_lr()[0]))
-            writer.add_scalar("loss/train", loss.item(), epoch)
+            log(run, {"loss": loss.item()}, type="train")
 
             # validation
             if (epoch + 1) % update_freq == 0:
-                log_iteration = (rnd + 1) if use_active_learning else iteration
                 train_scores = predict(
                     model, graph, target_node, inputs, edge_weight, labels, train_mask, threshold=threshold
                 )
                 val_scores = predict(
                     model, graph, target_node, inputs, edge_weight, labels, val_mask, threshold=threshold
                 )
-                log(writer, train_scores, log_iteration, type="train")
-                log(writer, val_scores, log_iteration, type="val")
+                log(run, train_scores, type="train")
+                log(run, val_scores, type="val")
                 print(val_scores)
 
             if iteration % 100 == 0:
@@ -118,21 +96,19 @@ def run(
 
         # choose next samples for the next round (except the last)
         if use_active_learning and rnd != (n_rounds - 1):
+            probs = torch.sigmoid(logits)
             query_train_mask = strategy.query(probs.detach().cpu(), labels.cpu(), features=features.detach().cpu())
-
-    pd.DataFrame(probs.detach().cpu().numpy()).sample(100).to_excel(excel_writer, sheet_name="prob")
-    excel_writer.close()
 
     # inference at the last round
     print("**** TEST ****")
     test_scores = predict(
         model, graph, target_node, inputs, edge_weight, labels, test_mask, threshold=threshold
     )
-    log(writer, test_scores, 0, type="test")
+    log(run, test_scores, type="test")
     print(test_scores)
     os.makedirs("results", exist_ok=True)
     report = pd.Series(test_scores).sort_index() * 100
-    report.to_csv(os.path.join("results", f"{exp_name}.csv"), float_format="%.2f")
+    report.to_csv("results.csv", float_format="%.2f")
     
     return model
 
@@ -150,6 +126,6 @@ def predict(
         scores = compute_metrics(y_true, y_prob, threshold=threshold)
     return scores
 
-def log(writer: SummaryWriter, scores: Dict, iteration: int = 0, type: str = "train"):
+def log(run, scores: Dict, type: str = "train"):
     for k, v in scores.items():
-        writer.add_scalar(f"{k}/{type}", v, iteration)
+        run[f"{type}/{k}"].log(v)

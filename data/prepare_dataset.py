@@ -27,23 +27,37 @@ def prepare_dataset(
     ds = PatentClassificationDataset(predict_category="doc")
 
     cache_path = os.path.join(cache_dir, "cached_doc.pck")
-    D_encoder, D_feat, (D_label, label_encoder), (D_aux_label, aux_label_encoder), D_mask, doc_content, doc_labels = utils.cache_to_path(
-        cache_path, get_document, doc_path, lang=lang, cache_dir=cache_dir
+    D, D_feat, (classes, D_label), D_mask = utils.cache_to_path(
+        cache_path, get_document,
+        doc_path, lang=lang, cache_dir=cache_dir,
     )
-    ds.add_nodes("doc", D_encoder, feat=D_feat, **D_mask)
-    ds.add_labels(D_label, label_encoder)
+    ds.add_nodes("doc", D, feat=D_feat, **D_mask)
+    ds.add_labels(classes, D_label)
 
     if "word" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_word.pck")
-        W_encoder, W_feat, DvsW_weight, WvsW_weight = utils.cache_to_path(
-            cache_path, get_document_word, doc_content, lang=lang, cache_dir=cache_dir
+        W, W_feat, DvsW_weight, WvsW_weight = utils.cache_to_path(
+            cache_path, get_document_word,
+            doc_path, D, lang=lang, cache_dir=cache_dir,
         )
         DvsW = DvsW_weight.nonzero()
         WvsW = WvsW_weight.nonzero()
-        ds.add_nodes("word", W_encoder, feat=W_feat)
+        ds.add_nodes("word", W, feat=W_feat)
         ds.add_edges(("word", "word#relate", "word"), WvsW, weight=WvsW_weight[WvsW])
         ds.add_edges(("doc", "word#have", "word"), DvsW, weight=DvsW_weight[DvsW])
 
+    if "cluster" in feature_type:
+        cache_path = os.path.join(cache_dir, "cached_cluster.pck")
+        Cl, Cl_feat, DvsCl_weight, ClvsCl_weight = utils.cache_to_path(
+            cache_path, get_document_cluster,
+            D_feat, n_clusters=n_clusters,
+        )
+        DvsCl = DvsCl_weight.nonzero()
+        ClvsCl = ClvsCl_weight.nonzero()
+        ds.add_nodes("cluster", Cl, feat=Cl_feat)
+        ds.add_edges(("cluster", "cluster#distance", "cluster"), ClvsCl, weight=ClvsCl_weight[ClvsCl])
+        ds.add_edges(("doc", "cluster#form", "cluster"), DvsCl, weight=DvsCl_weight[DvsCl])
+        
     if "label" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_label.pck")
         L_encoder, L_feat, DvsL_weight = utils.cache_to_path(
@@ -52,17 +66,6 @@ def prepare_dataset(
         DvsL = DvsL_weight.nonzero()
         ds.add_nodes("label", L_encoder, feat=L_feat)
         ds.add_edges(("doc", "label#distance", "label"), DvsL, weight=DvsL_weight[DvsL])
-
-    if "cluster" in feature_type:
-        cache_path = os.path.join(cache_dir, "cached_cluster.pck")
-        Cl_encoder, Cl_feat, DvsCl_weight, ClvsCl_weight = utils.cache_to_path(
-            cache_path, get_document_cluster, D_feat, n_clusters=n_clusters
-        )
-        DvsCl = DvsCl_weight.nonzero()
-        ClvsCl = ClvsCl_weight.nonzero()
-        ds.add_nodes("cluster", Cl_encoder, feat=Cl_feat)
-        ds.add_edges(("cluster", "cluster#distance", "cluster"), ClvsCl, weight=ClvsCl_weight[ClvsCl])
-        ds.add_edges(("doc", "cluster#form", "cluster"), DvsCl, weight=DvsCl_weight[DvsCl])
 
     if "concept" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_concept.pck")
@@ -77,35 +80,32 @@ def prepare_dataset(
  
 def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     docs = {doc["id"]: doc for doc in utils.load_ndjson(doc_path)}
-    D = {did: id for id, did in enumerate(sorted(docs.keys()))}
+    D = sorted(docs.keys())
     D_mask = {dtype: [] for dtype in ("train_mask", "val_mask", "test_mask")}
     doc_content, doc_labels = [], []
-    doc_aux_labels = []
     for did in tqdm(D, desc="Loading documents"):
         x = docs[did]
-        content = " ".join((x["abstract"], x["title"], x["claim_1"], x["description"]))
-        doc_content.append(content[:5000])
+        doc_content.append(x["text"])
         doc_labels.append(x["labels"])
-        doc_aux_labels.append([e[:3] for e in x["labels"]])
         D_mask["train_mask"].append(x["is_train"])
         D_mask["val_mask"].append(x["is_dev"])
         D_mask["test_mask"].append(x["is_test"])
 
-    label_encoder = set([e for x in doc_labels for e in x])
-    label_encoder = {lid: id for id, lid in enumerate(sorted(label_encoder))}
-    utils.dump_json(label_encoder, os.path.join(cache_dir, "label_encoder.json"))
-    D_feat = utils.get_sbert_embedding(doc_content, lang=lang)
-    D_label = utils.get_multihot_encoding(doc_labels, label_encoder)
-    return D, D_feat, (D_label, label_encoder), D_mask, doc_content, doc_labels
+    D_label, classes = utils.encode_multihot(doc_labels)
+    D_feat = utils.encode_sbert(doc_content, lang=lang)
+    return D, D_feat, (classes, D_label), D_mask
 
 def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "cache/"):
-    label_descriptions = [e for x in data_utils.IPC_SUBCLASS.values() for e in x]
-    label_descriptions = utils.normalize_text(label_descriptions, lang="en", cache_dir="./")
-    _, vocab = utils.get_tfidf_score(label_descriptions, lang="en", cache_dir="./")
+    if lang == "en":
+        class_desc = [e for x in data_utils.IPC_SUBCLASS.values() for e in x]
+        class_desc = utils.normalize_text(label_descriptions, lang="en")
+        _, class_W = utils.get_tfidf_score(label_descriptions, lang="en")
+    else:
+        class_W = None
+    
     doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
-    DvsW_weight, W = utils.get_tfidf_score(doc_content, vocab=vocab, lang=lang, cache_dir=cache_dir)
-    sorted_words = sorted(W, key=W.get)
-    W_feat = utils.get_word_embedding(sorted_words, corpus=doc_content, cache_dir=cache_dir)
+    DvsW_weight, W = utils.get_tfidf_score(doc_content, vocab=class_W, lang=lang, cache_dir=cache_dir)
+    W_feat = utils.get_word_embedding(W, corpus=doc_content, cache_dir=cache_dir)
     WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
     DvsW_weight = DvsW_weight.toarray()
     WvsW_weight = np.tril(WvsW_weight)

@@ -1,3 +1,3 @@
 from .concept import *
-from .ipc_class import IPC_CLASS
+from .cpc_subclass import CPC_SUBCLASS
 from .ipc_subclass import IPC_SUBCLASS

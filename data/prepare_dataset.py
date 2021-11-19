@@ -101,32 +101,36 @@ def get_document(doc_path: str, lang: str = "en", cache_dir: str = "cache/"):
     D_mask = {dtype: [] for dtype in ("train_mask", "val_mask", "test_mask")}
     doc_content, doc_labels = [], []
     for did in tqdm(D, desc="Loading documents"):
-        x = docs[did]
-        doc_content.append(x["text"])
-        doc_labels.append(x["labels"])
-        D_mask["train_mask"].append(x["is_train"])
-        D_mask["val_mask"].append(x["is_dev"])
-        D_mask["test_mask"].append(x["is_test"])
+        doc = docs[did]
+        doc_content.append(doc["text"])
+        doc_labels.append(doc["labels"])
+        D_mask["train_mask"].append(doc["is_train"])
+        D_mask["val_mask"].append(doc["is_dev"])
+        D_mask["test_mask"].append(doc["is_test"])
 
     D_label, classes = utils.encode_multihot(doc_labels)
     D_feat = utils.encode_sbert(doc_content, lang=lang)
     return D, D_feat, (classes, D_label), D_mask
 
 
-def get_document_word(doc_content: List[str], lang: str = "en", cache_dir: str = "cache/"):
+def get_document_word(doc_path: str, D: List, lang: str = "en", cache_dir: str = "cache/"):
+    doc_content = [None] * len(D)
+    D_mapper = {did: id for id, did in enumerate(D)}
+    for doc in utils.load_ndjson(doc_path):
+        doc_content[D_mapper[doc["id"]]] = doc["text"]
+    doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
+
+    # extract key words from class description
     if lang == "en":
-        class_desc = [e for x in data_utils.IPC_SUBCLASS.values() for e in x]
-        class_desc = utils.normalize_text(label_descriptions, lang="en")
-        _, class_W = utils.get_tfidf_score(label_descriptions, lang="en")
+        class_desc = [e for x in data_utils.CPC_SUBCLASS.values() for e in x]
+        class_desc = utils.normalize_text(class_desc, lang="en")
+        _, class_W = utils.encode_tfidf(class_desc, lang="en")
     else:
         class_W = None
 
-    doc_content = utils.normalize_text(doc_content, lang=lang, cache_dir=cache_dir)
-    DvsW_weight, W = utils.get_tfidf_score(
-        doc_content, vocab=class_W, lang=lang, cache_dir=cache_dir
-    )
-    W_feat = utils.get_word_embedding(W, corpus=doc_content, cache_dir=cache_dir)
-    WvsW_weight = utils.get_pmi(doc_content, vocab=sorted_words, window_size=20)
+    DvsW_weight, W = utils.encode_tfidf(doc_content, vocab=class_W, lang=lang, cache_dir=cache_dir)
+    W_feat = utils.encode_word(W, corpus=doc_content, cache_dir=cache_dir)
+    WvsW_weight = utils.get_pmi(doc_content, vocab=W, window_size=10)
     DvsW_weight = DvsW_weight.toarray()
     WvsW_weight = np.tril(WvsW_weight)
     return W, W_feat, DvsW_weight, WvsW_weight

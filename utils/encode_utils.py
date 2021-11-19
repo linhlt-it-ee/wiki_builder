@@ -1,19 +1,15 @@
-import logging
 import os
-from typing import Dict, List
+from typing import List
 
-import fugashi
-import gensim.downloader
-import nltk
 import numpy as np
 import torch
 from gensim.models import Word2Vec
-from nltk.stem import WordNetLemmatizer, porter
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import MultiLabelBinarizer
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
-from . import file_utils
+from .helper import yield_batch
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -22,36 +18,6 @@ def encode_multihot(labels):
     mlb = MultiLabelBinarizer()
     res = mlb.fit_transform(labels)
     return res, list(mlb.classes_)
-
-
-def normalizer(lang: str = "en"):
-    if lang == "en":
-        stemmer = porter.PorterStemmer()
-        lemmatizer = WordNetLemmatizer()
-    elif lang == "ja":
-        tagger = fugashi.Tagger()
-    else:
-        raise NotImplementedError
-
-    def fn(doc):
-        if lang == "en":
-            words = [w for w in nltk.wordpunct_tokenize(doc) if w.isalpha() and len(w) > 2]
-            words = [lemmatizer.lemmatize(w, "v") for w in words]
-            words = [lemmatizer.lemmatize(w, "n") for w in words]
-            words = [stemmer.stem(w) for w in words]
-        elif lang == "ja":
-            words = [str(w.feature.lemma) for w in tagger(doc)]
-            words = [w for w in words if w.isalpha() and w != "None"]
-        return " ".join(words).lower()
-
-    return fn
-
-
-def normalize_text(doc_content_list: List[str], lang: str = "en", cache_dir="./tmp"):
-    transformer = normalizer(lang=lang)
-    res = [transformer(doc) for doc in tqdm(doc_content_list, desc="Normalizing")]
-    file_utils.dump(res, os.path.join(cache_dir, f"normalized_text_{lang}.pck"))
-    return res
 
 
 def encode_bert(text: List[str], max_length: int = 64, lang: str = "en"):
@@ -97,17 +63,6 @@ def encode_sbert(text: List[str], lang: str = "en"):
     return np.vstack(res)
 
 
-def yield_batch(arr: List):
-    arr_len = len(arr)
-    pbar = tqdm(total=arr_len, desc="Batching")
-    start_idx = 0
-    while start_idx < arr_len - 1:
-        batch_size = min(32, arr_len - start_idx)
-        yield arr[start_idx : start_idx + batch_size]
-        pbar.update(batch_size)
-        start_idx += batch_size
-
-
 def encode_word(words: List[str], corpus: List[str], cache_dir="./tmp"):
     sentences = [sent.split() for sent in corpus]
     model_path = os.path.join(cache_dir, "word2vec.model")
@@ -119,3 +74,29 @@ def encode_word(words: List[str], corpus: List[str], cache_dir="./tmp"):
         model = Word2Vec.load(model_path)
 
     return [model.wv[w] for w in tqdm(words, desc="Featurizing")]
+
+
+def encode_tfidf(text: List[str], vocab: List[str] = None, lang: str = "en", cache_dir="./tmp"):
+    stop_words = None if lang != "en" else "english"
+    vectorizer = TfidfVectorizer(
+        tokenizer=lambda x: x.split(), stop_words=stop_words, vocabulary=None, min_df=5, max_df=0.7
+    ).fit(text)
+    tf_vocab = vectorizer.vocabulary_
+    if vocab is not None:
+        vocab = list(set(vocab).intersection(tf_vocab.keys()))
+        assert len(vocab) != 0, "Empty vocabulary"
+        vectorizer = TfidfVectorizer(
+            tokenizer=lambda x: x.split(),
+            stop_words=stop_words,
+            vocabulary=vocab,
+            min_df=5,
+            max_df=0.7,
+        ).fit(text)
+        tf_vocab = vectorizer.vocabulary_
+    X = vectorizer.transform(text)
+
+    print("Vocabulary size:", len(tf_vocab))
+    with open(os.path.join(cache_dir, f"vocab_{lang}.txt"), "w") as f:
+        f.write(" ".join(sorted(tf_vocab.keys())))
+
+    return X, tf_vocab

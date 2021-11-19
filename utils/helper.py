@@ -1,35 +1,38 @@
-import os
 from collections import defaultdict
 from math import log
 from typing import List
 
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.cluster import KMeans
+from sklearn.metrics import pairwise_distances
+from sklearn.mixture import GaussianMixture
 from tqdm import tqdm
 
 
-def get_tfidf_score(text: List[str], vocab: List[str] = None, lang: str = "en", cache_dir="./tmp"):
-    stop_words = None if lang != "en" else "english"
-    vectorizer = TfidfVectorizer(
-        tokenizer=lambda x: x.split(), stop_words=stop_words, vocabulary=None, min_df=5, max_df=0.7
-    ).fit(text)
-    tf_vocab = vectorizer.vocabulary_
-    if vocab is not None:
-        vocab = list(set(vocab).intersection(tf_vocab.keys()))
-        assert len(vocab) != 0, "Empty vocabulary"
-        vectorizer = TfidfVectorizer(
-            tokenizer=lambda x: x.split(),
-            stop_words=stop_words,
-            vocabulary=vocab,
-            min_df=5,
-            max_df=0.7,
-        ).fit(text)
-        tf_vocab = vectorizer.vocabulary_
-    X = vectorizer.transform(text)
-    print("Vocabulary size:", len(tf_vocab))
-    with open(os.path.join(cache_dir, f"vocab_{lang}.txt"), "w") as f:
-        f.write(" ".join(sorted(tf_vocab.keys())))
-    return X, tf_vocab
+def yield_batch(arr: List, batch_size: int = 32):
+    arr_len = len(arr)
+    pbar = tqdm(total=arr_len, desc="Batching")
+    start_idx = 0
+    while start_idx < arr_len - 1:
+        batch_size = min(batch_size, arr_len - start_idx)
+        yield arr[start_idx : start_idx + batch_size]
+        pbar.update(batch_size)
+        start_idx += batch_size
+
+
+def get_kmean_matrix(embeddings: List, n_clusters: int = 100, is_gmm: bool = False):
+    if not is_gmm:
+        model = KMeans(n_clusters=n_clusters).fit(embeddings)
+        centers = model.cluster_centers_
+    else:
+        model = GaussianMixture(
+            n_components=n_clusters,
+            covariance_type="full",
+            random_state=0,
+        ).fit(embeddings)
+        centers = model.means_
+
+    return centers
 
 
 def get_pmi(doc_content_list: List[str], vocab: List[str], window_size: int = 20):
@@ -71,16 +74,3 @@ def get_pmi(doc_content_list: List[str], vocab: List[str], window_size: int = 20
         pmi_word_word[vocab[wi]][vocab[wj]] = pmi
 
     return pmi_word_word
-
-
-if __name__ == "__main__":
-    doc_content_list = []
-    prj_path = "../temp/"
-    dataset = "R8"
-    f = open(prj_path + dataset + ".clean.txt", "r")
-    lines = f.readlines()
-    for line in lines:
-        doc_content_list.append(line.strip())
-    f.close()
-    tf_idf_matrix, sorted_tfvocab = get_tfidf_score(doc_content_list)
-    pmi_matrix = get_pmi(prj_path, dataset, doc_content_list, list(sorted_tfvocab.keys()))

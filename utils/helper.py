@@ -13,7 +13,7 @@ def yield_batch(arr: List, batch_size: int = 32):
     arr_len = len(arr)
     pbar = tqdm(total=arr_len, desc="Batching")
     start_idx = 0
-    while start_idx < arr_len - 1:
+    while start_idx <= arr_len - 1:
         batch_size = min(batch_size, arr_len - start_idx)
         yield arr[start_idx : start_idx + batch_size]
         pbar.update(batch_size)

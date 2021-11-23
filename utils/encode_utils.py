@@ -51,7 +51,10 @@ def encode_sbert(text: List[str], lang: str = "en"):
     from sentence_transformers import SentenceTransformer
 
     if lang == "en":
-        pretrained_model_name = "sentence-transformers/all-distilroberta-v1"
+        pretrained_model_name = "sentence-transformers/all-mpnet-base-v2"
+        # pretrained_model_name = "sentence-transformers/all-distilroberta-v1"
+    elif lang == "ja":
+        pretrained_model_name = "sentence-transformers/distiluse-base-multilingual-cased-v2"
     else:
         raise NotImplementedError
 

@@ -18,10 +18,10 @@ class PatentClassificationDataset:
         return len(self.classes)
 
     def get_num_nodes_dict(self):
-        res = {}
+        num_nodes_dict = {}
         for ntype in self.nodes:
-            res[ntype] = len(self.nodes[ntype]["feat"])
-        return res
+            num_nodes_dict[ntype] = len(self.nodes[ntype]["feat"])
+        return num_nodes_dict
 
     def get_graph(self) -> dgl.DGLGraph:
         num_nodes_dict = self.get_num_nodes_dict()
@@ -57,10 +57,16 @@ class PatentClassificationDataset:
         src, etype, dst = etype
         self.data_dict[(src, etype, dst)] = edges
         self.edges[etype]["weight"] = weight
-        if src != dst:
-            self.data_dict[(dst, "rev-" + etype, src)] = edges[::-1]
-            self.edges["rev-" + etype]["weight"] = weight
 
+    def add_rev_edges(
+        self, etype: Tuple[str, str, str], edges: Tuple[Iterable[int], Iterable[int]], weight=None
+    ) -> None:
+        assert len(edges[0]) == len(
+            weight
+        ), f"Edge connections {len(edges[0])} != weight {len(weight)}"
+        src, etype, dst = etype
+        self.data_dict[(dst, "rev-" + etype, src)] = edges[::-1]
+        self.edges["rev-" + etype]["weight"] = weight
 
 def _convert2tensor(array):
     return torch.tensor(array)

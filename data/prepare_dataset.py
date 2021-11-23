@@ -52,7 +52,7 @@ def prepare_dataset(
         WvsW = WvsW_weight.nonzero()
         ds.add_nodes("word", W, feat=W_feat)
         ds.add_edges(("word", "word#relate", "word"), WvsW, weight=WvsW_weight[WvsW])
-        ds.add_edges(("doc", "word#have", "word"), DvsW, weight=DvsW_weight[DvsW])
+        ds.add_rev_edges(("doc", "word#have", "word"), DvsW, weight=DvsW_weight[DvsW])
 
     if "cluster" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_cluster.pck")
@@ -65,10 +65,7 @@ def prepare_dataset(
         DvsCl = DvsCl_weight.nonzero()
         ClvsCl = ClvsCl_weight.nonzero()
         ds.add_nodes("cluster", Cl, feat=Cl_feat)
-        ds.add_edges(
-            ("cluster", "cluster#distance", "cluster"), ClvsCl, weight=ClvsCl_weight[ClvsCl]
-        )
-        ds.add_edges(("doc", "cluster#form", "cluster"), DvsCl, weight=DvsCl_weight[DvsCl])
+        ds.add_rev_edges(("doc", "cluster#form", "cluster"), DvsCl, weight=DvsCl_weight[DvsCl])
 
     if "label" in feature_type:
         cache_path = os.path.join(cache_dir, "cached_label.pck")
@@ -78,19 +75,6 @@ def prepare_dataset(
         DvsL = DvsL_weight.nonzero()
         ds.add_nodes("label", L_encoder, feat=L_feat)
         ds.add_edges(("doc", "label#distance", "label"), DvsL, weight=DvsL_weight[DvsL])
-
-    if "concept" in feature_type:
-        cache_path = os.path.join(cache_dir, "cached_concept.pck")
-        C_encoder, C_feat, DvsC, CvsC = utils.cache_to_path(
-            cache_path,
-            get_document_concept,
-            D_encoder.values(),
-            par_num=par_num,
-            cache_dir=cache_dir,
-        )
-        ds.add_nodes("concept", C_encoder, feat=C_feat)
-        ds.add_edges(("concept", "concept#is-child", "concept"), CvsC)
-        ds.add_edges(("doc", "concept#have", "concept"), DvsC)
 
     return ds
 
@@ -136,7 +120,15 @@ def get_document_word(doc_path: str, D: List, lang: str = "en", cache_dir: str =
     return W, W_feat, DvsW_weight, WvsW_weight
 
 
-def get_document_label(D_feat: str, doc_labels: List[List[str]]):
+def get_document_cluster(D_feat: List, n_clusters: int = 100):
+    Cl = {str(id): id for id in range(n_clusters)}
+    Cl_feat = utils.get_kmean_matrix(D_feat, n_clusters=n_clusters)
+    ClvsCl_weight = np.tril(normalize(utils.pairwise_distances(Cl_feat, metric="cosine", n_jobs=4)))
+    DvsCl_weight = normalize(utils.pairwise_distances(D_feat, Cl_feat, metric="cosine", n_jobs=4))
+    return Cl, Cl_feat, DvsCl_weight, ClvsCl_weight
+
+
+def get_document_label(D_feat: List, doc_labels: List[List[str]]):
     tmp_path = "./label_embedding.pck"
     label_encoder = defaultdict(list)
     desc_embeddings = []
@@ -165,38 +157,3 @@ def get_document_label(D_feat: str, doc_labels: List[List[str]]):
     DvsL_weight.partition(200, axis=1)
     DvsL_weight = DvsL_weight[:, :200]
     return L, L_feat, DvsL_weight
-
-
-def get_document_cluster(D_feat: List, n_clusters: int = 100):
-    Cl = {str(id): id for id in range(n_clusters)}
-    Cl_feat = utils.get_kmean_matrix(D_feat, n_clusters=n_clusters)
-    ClvsCl_weight = np.tril(normalize(utils.pairwise_distances(Cl_feat, n_jobs=4)))
-    DvsCl_weight = normalize(utils.pairwise_distances(D_feat, Cl_feat, n_jobs=4))
-    return Cl, Cl_feat, DvsCl_weight, ClvsCl_weight
-
-
-def get_document_concept(D: Dict[str, int], par_num: List[int], cache_dir: str = "cache/"):
-    # temporary files (for `concept` nodes)
-    doc_mention_path = os.path.join(cache_dir, "doc_mention.json")
-    mention_concept_path = os.path.join(cache_dir, "concept_links.json")
-    concept_path = os.path.join(cache_dir, "concept_labels.json")
-    doc_mention = utils.load_json(doc_mention_path)
-    mention_concept = utils.load_json(mention_concept_path)
-
-    C, CvsC_edges, DvsC_edges = data_utils.create_document_concept_graph(
-        D.keys(), doc_mention, mention_concept, par_num
-    )
-    C = {cid: id for id, cid in enumerate(sorted(C))}
-    concepts = utils.load_json(concept_path)
-    C_feat = [concepts[cid] for cid in C]
-    C_feat = utils.get_bert_features(C_feat, max_length=32)
-    DvsC = ([], [])
-    CvsC = ([], [])
-    for u, v in DvsC_edges:
-        DvsC[0].append(D[u])
-        DvsC[1].append(C[v])
-    for u, v in CvsC_edges:
-        CvsC[0].append(C[u])
-        CvsC[1].append(C[v])
-
-    return C, C_feat, DvsC, CvsC

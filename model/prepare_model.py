@@ -19,9 +19,10 @@ def prepare_model(
     aggregate: str = "sum",
     dropout: float = 0.2,
     num_heads: int = 2,
+    lang: str = "en",
 ) -> nn.Module:
     params = {
-        "in_feat": 768,
+        "in_feat": 512 if lang == "ja" else 768,
         "hidden_feat": hidden_feat,
         "n_classes": n_classes,
         "n_layers": n_layers,

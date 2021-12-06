@@ -25,7 +25,8 @@ def normalizer(lang: str = "en"):
             words = [lemmatizer.lemmatize(w, "n") for w in words]
             words = [stemmer.stem(w) for w in words]
         elif lang == "ja":
-            words = [str(w.feature.lemma) for w in tagger(doc)]
+            # words = [str(w.feature.lemma) for w in tagger(doc)]
+            words = [str(w.surface) for w in tagger(doc)]
             words = [w for w in words if w.isalpha() and w != "None"]
         return " ".join(words).lower()
 

@@ -4,6 +4,7 @@ from typing import List
 import numpy as np
 import torch
 from gensim.models import Word2Vec
+from sentence_transformers import SentenceTransformer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import MultiLabelBinarizer
 from tqdm import tqdm
@@ -48,13 +49,10 @@ def encode_bert(text: List[str], max_length: int = 64, lang: str = "en"):
 
 
 def encode_sbert(text: List[str], lang: str = "en"):
-    from sentence_transformers import SentenceTransformer
-
     if lang == "en":
         pretrained_model_name = "sentence-transformers/all-mpnet-base-v2"
-        # pretrained_model_name = "sentence-transformers/all-distilroberta-v1"
     elif lang == "ja":
-        pretrained_model_name = "sentence-transformers/distiluse-base-multilingual-cased-v2"
+        pretrained_model_name = "sentence-transformers/distiluse-base-multilingual-cased"
     else:
         raise NotImplementedError
 
@@ -66,12 +64,12 @@ def encode_sbert(text: List[str], lang: str = "en"):
     return np.vstack(res)
 
 
-def encode_word(words: List[str], corpus: List[str], cache_dir="./tmp"):
+def encode_word(words: List[str], corpus: List[str], dim: int = 768, cache_dir="./tmp"):
     sentences = [sent.split() for sent in corpus]
     model_path = os.path.join(cache_dir, "word2vec.model")
     if not os.path.exists(model_path):
         # same dimension as bert embedding
-        model = Word2Vec(sentences=sentences, vector_size=768, window=5, workers=4)
+        model = Word2Vec(sentences=sentences, vector_size=dim, window=5, workers=4)
         model.save(model_path)
     else:
         model = Word2Vec.load(model_path)
@@ -79,10 +77,17 @@ def encode_word(words: List[str], corpus: List[str], cache_dir="./tmp"):
     return [model.wv[w] for w in tqdm(words, desc="Featurizing")]
 
 
-def encode_tfidf(text: List[str], vocab: List[str] = None, lang: str = "en", cache_dir="./tmp"):
+def encode_tfidf(
+    text: List[str], vocab: List[str] = None, lang: str = "en", cache_dir="./tmp", **kwargs
+):
     stop_words = None if lang != "en" else "english"
     vectorizer = TfidfVectorizer(
-        tokenizer=lambda x: x.split(), stop_words=stop_words, vocabulary=None, min_df=5, max_df=0.7
+        tokenizer=lambda x: x.split(),
+        stop_words=stop_words,
+        vocabulary=None,
+        min_df=5,
+        max_df=0.7,
+        **kwargs,
     ).fit(text)
     tf_vocab = vectorizer.vocabulary_
     if vocab is not None:
@@ -94,6 +99,7 @@ def encode_tfidf(text: List[str], vocab: List[str] = None, lang: str = "en", cac
             vocabulary=vocab,
             min_df=5,
             max_df=0.7,
+            **kwargs,
         ).fit(text)
         tf_vocab = vectorizer.vocabulary_
     X = vectorizer.transform(text)

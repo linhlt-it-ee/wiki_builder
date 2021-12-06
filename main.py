@@ -9,8 +9,8 @@ from train import *
 
 if __name__ == "__main__":
     args = make_run_args()
-    with open("api_token.txt", "r") as f:
-        run = neptune.init(project="joanna/graph-patent", api_token=f.read().strip())
+    with open(f"api_token.txt", "r") as f:
+        run = neptune.init(project=f"joanna/graph-patent", api_token=f.read().strip())
         run["params"] = vars(args)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -33,6 +33,7 @@ if __name__ == "__main__":
         aggregate=args.aggregate,
         dropout=args.dropout,
         num_heads=args.num_heads,
+        lang=args.lang,
     )
     model = train(
         model,

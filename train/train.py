@@ -1,3 +1,4 @@
+import json
 import os
 from collections import defaultdict
 from typing import Dict
@@ -36,8 +37,12 @@ def train(
     )
 
     # settings
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.05)
-    lr_scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda it: lr * 0.9 ** (it - 1))
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=0.1)
+    lr_freq = 100
+    warmup = 5  # first 500 epoch
+    lr_scheduler = optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=lambda it: lr * 0.9 ** max(0, it - warmup)
+    )
     use_active_learning = True if strategy_name is not None else False
     if use_active_learning:
         n_rounds = 100
@@ -109,9 +114,9 @@ def train(
                 )
                 log(run, train_scores, type="train")
                 log(run, val_scores, type="val")
-                print(val_scores)
+                print(json.dumps(val_scores, sort_keys=True, indent=4))
 
-            if iteration % 100 == 0:
+            if iteration != 0 and iteration % lr_freq == 0:
                 lr_scheduler.step()
 
         # choose next samples for the next round (except the last)
@@ -127,10 +132,11 @@ def train(
         model, graph, target_node, inputs, edge_weight, labels, test_mask, threshold=threshold
     )
     log(run, test_scores, type="test")
-    print(test_scores)
+    print(json.dumps(test_scores, sort_keys=True, indent=4))
     os.makedirs("results", exist_ok=True)
     report = pd.Series(test_scores).sort_index() * 100
     report.to_csv("results.csv", float_format="%.2f")
+    run["test/report"].upload("results.csv")
 
     return model
 

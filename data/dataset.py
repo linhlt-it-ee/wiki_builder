@@ -2,6 +2,7 @@ from collections import defaultdict
 from typing import Dict, Iterable, List, Tuple
 
 import dgl
+import numpy as np
 import torch
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -30,12 +31,14 @@ class PatentClassificationDataset:
         graph = dgl.heterograph(data_dict=self.data_dict, num_nodes_dict=num_nodes_dict)
         for ntype in self.nodes:
             for dtype in self.nodes[ntype]:
-                graph.nodes[ntype].data[dtype] = _convert2tensor(self.nodes[ntype][dtype])
+                graph.nodes[ntype].data[dtype] = torch.tensor(self.nodes[ntype][dtype])
         for etype in self.edges:
             for dtype in self.edges[etype]:
                 if self.edges[etype][dtype] is None:
                     continue
-                graph.edges[etype].data[dtype] = _convert2tensor(self.edges[etype][dtype])
+                graph.edges[etype].data[dtype] = torch.tensor(
+                    self.edges[etype][dtype], dtype=torch.float32
+                )
         return graph.to(device)
 
     def add_labels(self, classes: List, labels) -> None:
@@ -67,6 +70,3 @@ class PatentClassificationDataset:
         src, etype, dst = etype
         self.data_dict[(dst, "rev-" + etype, src)] = edges[::-1]
         self.edges["rev-" + etype]["weight"] = weight
-
-def _convert2tensor(array):
-    return torch.tensor(array)
